@@ -1,7 +1,7 @@
 package app.velora.domain.model
 
 data class Session(val accessToken:String,val refreshToken:String)
-data class MyProfile(val id:String,val email:String,val name:String?,val onboardingComplete:Boolean,val birthDate:String?=null,val gender:String?=null,val city:String?=null,val bio:String?=null,val datingGoal:String?=null,val photoUrl:String?=null,val interests:List<String> = emptyList(),val hidden:Boolean=false)
+data class MyProfile(val id:String,val email:String?,val name:String?,val onboardingComplete:Boolean,val birthDate:String?=null,val gender:String?=null,val city:String?=null,val bio:String?=null,val datingGoal:String?=null,val photoUrl:String?=null,val interests:List<String> = emptyList(),val hidden:Boolean=false)
 data class ProfilePhoto(val id:String,val position:Int,val url:String)
 data class RecoveryRequest(val accepted:Boolean,val developmentToken:String?=null)
 data class DiscoverProfile(val id:String,val name:String,val age:Int,val city:String,val bio:String,val goal:String,val distanceKm:Int?,val photoUrl:String?,val online:Boolean,val interests:List<String> = emptyList(),val photoUrls:List<String> = emptyList())
@@ -15,5 +15,11 @@ data class BlockedUser(val id:String,val name:String?,val createdAt:String)
 data class Subscription(val tier:String="free",val validUntil:String?=null,val actionLimit:Int=20,val actionsUsed:Int=0,val superLikeLimit:Int=1,val superLikesUsed:Int=0){val premium:Boolean get()=tier=="premium"}
 data class ReceivedLike(val id:String,val name:String,val age:Int,val kind:String,val photoUrl:String?)
 data class ReceivedLikes(val count:Int=0,val locked:Boolean=true,val people:List<ReceivedLike> = emptyList())
+data class AuthProviders(val email:Boolean=true,val phone:Boolean=false,val google:Boolean=false,val x:Boolean=false,val vk:Boolean=false,val instagram:Boolean=true)
+data class AuthIdentity(val id:String,val provider:String,val maskedEmail:String?=null,val maskedPhone:String?=null,val emailVerified:Boolean=false,val phoneVerified:Boolean=false,val createdAt:String="",val lastUsedAt:String="")
+data class PhoneOtpChallenge(val phone:String,val expiresInSeconds:Int,val resendAfterSeconds:Int,val developmentCode:String?=null)
+data class OAuthAuthorization(val provider:String,val authorizationUrl:String,val state:String)
+data class ProfileLocation(val country:String?=null,val region:String?=null,val city:String,val latitude:Double?=null,val longitude:Double?=null,val locationSource:String,val accuracyMeters:Int?=null,val updatedAt:String?=null)
+data class SocialProfile(val provider:String,val username:String,val profileUrl:String,val verified:Boolean=false,val visibleInProfile:Boolean=false,val createdAt:String="",val updatedAt:String="")
 
 sealed interface DataResult<out T>{data class Success<T>(val value:T,val fromCache:Boolean=false):DataResult<T>;data class Failure(val message:String,val retryable:Boolean=true):DataResult<Nothing>}

@@ -11,11 +11,28 @@ interface VeloraApi {
     @POST("auth/logout") suspend fun logout(@Body value:RefreshDto):OkDto
     @POST("auth/recover") suspend fun recover(@Body value:RecoverDto):RecoverResultDto
     @POST("auth/reset") suspend fun resetPassword(@Body value:ResetPasswordDto):OkDto
+    @GET("auth/providers") suspend fun providers():ProviderAvailabilityDto
+    @POST("auth/google") suspend fun google(@Body value:GoogleCredentialDto):TokenPairDto
+    @POST("auth/vk/sdk") suspend fun vk(@Body value:VkCredentialDto):TokenPairDto
+    @POST("auth/phone/request") suspend fun requestPhone(@Body value:PhoneRequestDto):PhoneRequestResultDto
+    @POST("auth/phone/verify") suspend fun verifyPhone(@Body value:PhoneVerifyDto):UnifiedAuthResultDto
+    @GET("auth/{provider}/start") suspend fun oauthStart(@Path("provider")provider:String,@Query("mode")mode:String):OAuthStartDto
+    @POST("auth/{provider}/callback") suspend fun oauthCallback(@Path("provider")provider:String,@Body value:OAuthCallbackDto):UnifiedAuthResultDto
     @GET("users/me") suspend fun me():MeDto
     @PATCH("users/me/profile") suspend fun profile(@Body value:ProfileDraftDto):JsonObject
     @PUT("users/me/onboarding") suspend fun onboarding(@Body value:OnboardingDto):OkDto
     @PUT("users/me/interests") suspend fun updateInterests(@Body value:InterestNamesDto):List<String>
     @PATCH("users/me/visibility") suspend fun visibility(@Body value:VisibilityDto):Map<String,Boolean>
+    @GET("users/me/identities") suspend fun identities():List<AuthIdentityDto>
+    @POST("users/me/identities/link/google") suspend fun linkGoogle(@Body value:GoogleCredentialDto):List<AuthIdentityDto>
+    @POST("users/me/identities/link/vk") suspend fun linkVk(@Body value:VkCredentialDto):List<AuthIdentityDto>
+    @DELETE("users/me/identities/{provider}") suspend fun unlinkIdentity(@Path("provider")provider:String):OkDto
+    @PUT("users/me/locale") suspend fun locale(@Body value:LocaleDto):LocaleDto
+    @GET("users/me/location") suspend fun location():ProfileLocationDto?
+    @PUT("users/me/location") suspend fun updateLocation(@Body value:LocationUpdateDto):ProfileLocationDto
+    @GET("users/me/social-profiles") suspend fun socialProfiles():List<SocialProfileDto>
+    @POST("users/me/social-profiles") suspend fun addSocialProfile(@Body value:SocialProfileUpdateDto):SocialProfileDto
+    @DELETE("users/me/social-profiles/{provider}") suspend fun deleteSocialProfile(@Path("provider")provider:String):OkDto
     @DELETE("users/me") suspend fun deleteAccount():OkDto
     @POST("users/me/photos/upload-url") suspend fun photoUploadUrl(@Body value:UploadUrlDto):UploadTicketDto
     @GET("users/me/photos") suspend fun photos():List<PhotoResultDto>

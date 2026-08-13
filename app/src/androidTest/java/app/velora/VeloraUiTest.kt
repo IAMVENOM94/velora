@@ -61,7 +61,9 @@ class VeloraUiTest {
         compose.onNodeWithText("Woman").performClick()
         compose.onNodeWithText("Continue").performClick()
         compose.onNodeWithText("Men").performClick()
-        compose.onNodeWithText("Continue").performClick() // city
+        compose.onNodeWithText("Continue").performClick()
+        compose.onNode(hasSetTextAction() and hasText("City")).performTextInput("Lisbon")
+        compose.onNodeWithText("Continue").performClick() // location
         compose.onNodeWithText("Continue").performClick()
         compose.onNodeWithText("Continue").performClick() // pre-supplied photo
         compose.onNodeWithText("Continue").performClick() // optional bio
@@ -77,5 +79,31 @@ class VeloraUiTest {
         compose.onNode(hasSetTextAction()).performTextInput("Hello River")
         compose.onNodeWithContentDescription("Send").performClick()
         compose.runOnIdle{assertEquals("flow@test.velora",registeredEmail);assertEquals("Nova",completedProfile?.name);assertEquals("Hello River",sentMessage)}
+    }
+
+    @Test fun authProviderButtons_reflectConfigurationState(){
+        compose.setContent{VeloraTheme{Login(false,AuthProviders(phone=true,google=false,x=false,vk=false),false,false,{},{},{_,_->},{},{},{},{})}}
+        compose.onNodeWithText("Continue with phone").assertIsEnabled()
+        compose.onNodeWithText("Continue with Google").assertIsNotEnabled()
+        compose.onAllNodesWithText("Unavailable in this build").assertCountEquals(3)
+    }
+
+    @Test fun connectedAccounts_andProviderActions_areVisible(){
+        var unlinked=""
+        compose.setContent{VeloraTheme{SettingsConnected(SearchPreferences(),false,emptyList(),{},{},{},{},{},{},providers=AuthProviders(phone=true),identities=listOf(AuthIdentity("email-id","email","p***@example.com"),AuthIdentity("google-id","google","g***@example.com")),onUnlink={unlinked=it})}}
+        compose.onNodeWithText("CONNECTED ACCOUNTS").assertExists()
+        compose.onNodeWithText("g***@example.com").assertExists()
+        compose.onNodeWithText("Phone").assertExists()
+        compose.onAllNodesWithText("Unlink")[1].performClick()
+        compose.onNodeWithText("Unlink Google?").assertExists()
+        compose.onAllNodesWithText("Unlink")[2].performClick()
+        compose.runOnIdle{assertEquals("google",unlinked)}
+    }
+
+    @Test fun settingsLanguageChoice_isWired(){
+        var selected:app.velora.localization.AppLanguage?=null
+        compose.setContent{VeloraTheme{SettingsConnected(SearchPreferences(),false,emptyList(),{},{},{},{},{},{},onLanguage={selected=it})}}
+        compose.onNodeWithText("Русский").performClick()
+        compose.runOnIdle{assertEquals(app.velora.localization.AppLanguage.Russian,selected)}
     }
 }

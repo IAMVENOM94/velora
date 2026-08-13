@@ -9,6 +9,13 @@ interface AuthRepository {
     suspend fun login(email:String,password:String):DataResult<Unit>
     suspend fun recover(email:String):DataResult<RecoveryRequest>
     suspend fun resetPassword(token:String,password:String):DataResult<Unit>
+    suspend fun providers():DataResult<AuthProviders>
+    suspend fun google(idToken:String):DataResult<Unit>
+    suspend fun vk(accessToken:String):DataResult<Unit>
+    suspend fun requestPhone(phone:String,deviceId:String):DataResult<PhoneOtpChallenge>
+    suspend fun verifyPhone(phone:String,code:String,link:Boolean=false):DataResult<List<AuthIdentity>?>
+    suspend fun oauthStart(provider:String,link:Boolean=false):DataResult<OAuthAuthorization>
+    suspend fun oauthComplete(provider:String,code:String,state:String,deviceId:String?=null):DataResult<List<AuthIdentity>?>
     suspend fun logout()
 }
 interface ProfileRepository {
@@ -17,6 +24,16 @@ interface ProfileRepository {
     suspend fun saveProfile(profile:ProfileDraft):DataResult<MyProfile>
     suspend fun saveInterests(interests:List<String>):DataResult<List<String>>
     suspend fun setHidden(hidden:Boolean):DataResult<Unit>
+    suspend fun identities():DataResult<List<AuthIdentity>>
+    suspend fun linkGoogle(idToken:String):DataResult<List<AuthIdentity>>
+    suspend fun linkVk(accessToken:String):DataResult<List<AuthIdentity>>
+    suspend fun unlinkIdentity(provider:String):DataResult<Unit>
+    suspend fun saveLocale(preferredLocale:String?):DataResult<String?>
+    suspend fun location():DataResult<ProfileLocation?>
+    suspend fun saveLocation(location:ProfileLocation):DataResult<ProfileLocation>
+    suspend fun socialProfiles():DataResult<List<SocialProfile>>
+    suspend fun saveInstagram(username:String,visible:Boolean=true):DataResult<SocialProfile>
+    suspend fun removeInstagram():DataResult<Unit>
     suspend fun deleteAccount():DataResult<Unit>
 }
 interface PhotoRepository {

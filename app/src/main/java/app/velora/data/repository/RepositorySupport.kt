@@ -8,11 +8,11 @@ suspend fun <T> remoteCall(block:suspend()->T):DataResult<T> = try{
     DataResult.Success(block())
 }catch(e:HttpException){
     val body=runCatching{e.response()?.errorBody()?.string()}.getOrNull().orEmpty()
-    val backendMessage=Regex("\\\"message\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"").find(body)?.groupValues?.getOrNull(1)
-    val fallback=when(e.code()){400->"Check the entered data";401->"Your session expired";402->"This feature requires Premium";404->"The requested item no longer exists";409->"The requested change conflicts with current data";413->"The selected file is too large";429->"Daily limit reached";else->"Server error (${e.code()})"}
-    DataResult.Failure(backendMessage?:fallback,e.code()>=500||e.code()==429)
+    val backendCode=Regex("\\\"code\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"").find(body)?.groupValues?.getOrNull(1)?.lowercase()
+    val fallback=when(e.code()){400->"bad_data";401->"session_expired";402->"premium_required";404->"not_found";409->"conflict";413->"file_large";429->"rate_limit";else->"server_error"}
+    DataResult.Failure(backendCode?:fallback,e.code()>=500||e.code()==429)
 }catch(_:IOException){
-    DataResult.Failure("No connection. Check your network and retry.")
+    DataResult.Failure("offline")
 }catch(e:Exception){
-    DataResult.Failure(e.message?:"Unexpected error",false)
+    DataResult.Failure("unexpected",false)
 }

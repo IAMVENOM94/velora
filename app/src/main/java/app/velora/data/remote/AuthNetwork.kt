@@ -11,7 +11,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton class AccessTokenInterceptor @Inject constructor(private val store:TokenStore):Interceptor{
-    override fun intercept(chain:Interceptor.Chain):Response{val request=chain.request();if(request.url.encodedPath.startsWith("/auth/"))return chain.proceed(request);val token=runBlocking{store.current()?.access};return chain.proceed(if(token==null)request else request.newBuilder().header("Authorization","Bearer $token").build())}
+    override fun intercept(chain:Interceptor.Chain):Response{val request=chain.request();val token=runBlocking{store.current()?.access};return chain.proceed(if(token==null)request else request.newBuilder().header("Authorization","Bearer $token").build())}
 }
 
 @Singleton class TokenAuthenticator @Inject constructor(private val store:TokenStore,private val json:Json):Authenticator{

@@ -43,6 +43,13 @@ private class FakeAuth:AuthRepository{
     override suspend fun login(email:String,password:String):DataResult<Unit>{loginCalls++;return DataResult.Success(Unit)}
     override suspend fun recover(email:String)=DataResult.Success(RecoveryRequest(true))
     override suspend fun resetPassword(token:String,password:String)=DataResult.Success(Unit)
+    override suspend fun providers()=DataResult.Success(AuthProviders())
+    override suspend fun google(idToken:String)=DataResult.Success(Unit)
+    override suspend fun vk(accessToken:String)=DataResult.Success(Unit)
+    override suspend fun requestPhone(phone:String,deviceId:String)=DataResult.Success(PhoneOtpChallenge(phone,300,60,"123456"))
+    override suspend fun verifyPhone(phone:String,code:String,link:Boolean)=DataResult.Success(null)
+    override suspend fun oauthStart(provider:String,link:Boolean)=DataResult.Success(OAuthAuthorization(provider,"https://example.test", "state"))
+    override suspend fun oauthComplete(provider:String,code:String,state:String,deviceId:String?)=DataResult.Success(null)
     override suspend fun logout()=Unit
 }
 
@@ -53,6 +60,16 @@ private class FakeProfile:ProfileRepository{
     override suspend fun saveProfile(profile:ProfileDraft)=DataResult.Success(me)
     override suspend fun saveInterests(interests:List<String>)=DataResult.Success(interests)
     override suspend fun setHidden(hidden:Boolean)=DataResult.Success(Unit)
+    override suspend fun identities()=DataResult.Success(emptyList<AuthIdentity>())
+    override suspend fun linkGoogle(idToken:String)=DataResult.Success(emptyList<AuthIdentity>())
+    override suspend fun linkVk(accessToken:String)=DataResult.Success(emptyList<AuthIdentity>())
+    override suspend fun unlinkIdentity(provider:String)=DataResult.Success(Unit)
+    override suspend fun saveLocale(preferredLocale:String?)=DataResult.Success(preferredLocale)
+    override suspend fun location()=DataResult.Success<ProfileLocation?>(null)
+    override suspend fun saveLocation(location:ProfileLocation)=DataResult.Success(location)
+    override suspend fun socialProfiles()=DataResult.Success(emptyList<SocialProfile>())
+    override suspend fun saveInstagram(username:String,visible:Boolean)=DataResult.Success(SocialProfile("instagram",username,"https://instagram.com/$username",visibleInProfile=visible))
+    override suspend fun removeInstagram()=DataResult.Success(Unit)
     override suspend fun deleteAccount()=DataResult.Success(Unit)
 }
 

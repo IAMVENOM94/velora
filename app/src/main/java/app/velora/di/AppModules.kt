@@ -22,6 +22,9 @@ import retrofit2.Retrofit
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
+import app.velora.location.*
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 
 @Module @InstallIn(SingletonComponent::class)
 object NetworkModule {
@@ -30,6 +33,7 @@ object NetworkModule {
     @Provides @Singleton fun retrofit(client:OkHttpClient,json:Json)=Retrofit.Builder().baseUrl(BuildConfig.API_BASE_URL).client(client).addConverterFactory(json.asConverterFactory("application/json".toMediaType())).build()
     @Provides @Singleton fun api(retrofit:Retrofit)=retrofit.create(VeloraApi::class.java)
     @Provides @Singleton fun imageLoader(@ApplicationContext context:Context,client:OkHttpClient)=ImageLoader.Builder(context).okHttpClient(client).crossfade(true).build()
+    @Provides @Singleton fun fusedLocation(@ApplicationContext context:Context):FusedLocationProviderClient=LocationServices.getFusedLocationProviderClient(context)
 }
 
 @Module @InstallIn(SingletonComponent::class)
@@ -40,4 +44,5 @@ abstract class RepositoryModule {
     @Binds @Singleton abstract fun chat(value:ChatRepositoryImpl):ChatRepository
     @Binds @Singleton abstract fun photos(value:PhotoRepositoryImpl):PhotoRepository
     @Binds @Singleton abstract fun push(value:DevelopmentPushRegistration):PushRegistration
+    @Binds @Singleton abstract fun location(value:AndroidForegroundLocationProvider):ForegroundLocationProvider
 }
