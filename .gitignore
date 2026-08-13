@@ -1,0 +1,8 @@
+*.iml
+.gradle/
+.idea/
+local.properties
+**/build/
+.env
+captures/
+*.jks
