@@ -41,6 +41,7 @@ try {
 
     Invoke-Checked { .\gradlew.bat assembleDebug testDebugUnitTest assembleDebugAndroidTest --no-daemon }
     Invoke-Checked { .\gradlew.bat assembleRelease --no-daemon }
+    Invoke-Checked { .\scripts\scan-release-apk.ps1 }
     Invoke-Checked { .\gradlew.bat lintDebug --no-daemon --max-workers=1 }
-    Write-Host 'Verification passed: backend, integration, Android build, unit tests, test APK, and lint.' -ForegroundColor Green
+    Write-Host 'Verification passed: backend, integration, Android build, unit tests, test APK, release secret scan, and lint.' -ForegroundColor Green
 } finally { Pop-Location }

@@ -14,8 +14,33 @@ Interactive OpenAPI documentation is generated at `/docs`. JSON field names show
 | POST | `/auth/logout` | Revoke the supplied refresh token. |
 | POST | `/auth/recover` | Create a single-use 30-minute reset token without revealing account existence. |
 | POST | `/auth/reset` | Set a new password, consume the reset token, and revoke all sessions. |
+| GET | `/auth/providers` | Return configuration-driven availability for email, phone, Google, X, VK and Instagram profile linking. |
+| POST | `/auth/google` | Verify a Google ID token and issue a Velora session. |
+| POST | `/auth/phone/request` | Create a five-minute E.164 OTP challenge with cooldown/rate limiting. |
+| POST | `/auth/phone/verify` | Consume a six-digit OTP once and issue a Velora session, or link it to an authenticated user. |
+| POST | `/auth/vk/sdk` | Verify the official VK ID SDK access token server-side and issue a Velora session. |
+| GET | `/auth/x/start` | Start X OAuth 2.0 Authorization Code + PKCE (`mode=login|link`). |
+| POST | `/auth/x/callback` | Consume X state/code, verify the provider subject, and login/link. |
+| GET/POST | `/auth/vk/start`, `/auth/vk/callback` | Browser PKCE compatibility flow; Android normally uses `/auth/vk/sdk`. |
 
 Credentials use `{ "email": "person@example.com", "password": "8-128 characters" }`. Password reset returns `developmentToken` only outside production; a production mail/SMS adapter can deliver the same opaque token.
+
+Provider tokens establish identity only and are never used as the Velora session. Every successful provider flow returns the existing access/rotating-refresh pair. Provider email is metadata: the backend never merges two users merely because emails match. Development OTP responses include `developmentCode` only outside production; production never logs or returns the code.
+
+## Account identities, locale, location and social profiles
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/users/me/identities` | List connected login methods with masked email/phone metadata. |
+| POST | `/users/me/identities/link/google` | Verify and connect Google to the authenticated account. |
+| POST | `/users/me/identities/link/vk` | Verify and connect an official VK ID result. |
+| DELETE | `/users/me/identities/:provider` | Disconnect a provider; rejects removing the final method. |
+| GET/PUT | `/users/me/locale` | Read or save optional `preferredLocale` (`ru`, `en`, or `null`). |
+| GET/PUT | `/users/me/location` | Read/save the owner's private GPS/manual profile location. |
+| GET/POST | `/users/me/social-profiles` | List or add normalized Instagram/X/VK profile links. |
+| PATCH/DELETE | `/users/me/social-profiles/:provider` | Update or remove a social profile link. |
+
+`PUT /users/me/location` accepts `country`, `region`, required `city`, optional latitude/longitude pair, `accuracyMeters`, and `locationSource` (`gps` or `manual`). Coordinates are quantized before storage. This owner-only DTO is intentionally separate from public discovery/profile DTOs.
 
 ## Profile and photos
 
@@ -40,7 +65,7 @@ Images are limited to 10 MB and JPEG, PNG, or WebP. MIME type, extension, size, 
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/discover?limit=20` | Eligible profiles and approximate distance; maximum 50 records. |
+| GET | `/discover?limit=20` | Eligible profiles after server-side radius filtering; maximum 50 records. Returns city/country and approximate distance but never location coordinates. |
 | POST | `/passes/:userId` | Pass a profile and consume a daily action. |
 | POST | `/likes/:userId` | Send `{ "kind": "like" | "super_like" }`; creates a match on reciprocity. |
 | GET | `/likes` | Count received likes; profile list is Premium-gated. |

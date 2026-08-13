@@ -12,12 +12,16 @@
 - WebSocket authentication and active-match membership are checked before joining a room. Heartbeats remove dead connections.
 - Blocks work in both directions for discovery and atomically end an active match. Report reasons/details are bounded.
 - Exact coordinates stay in PostgreSQL; clients receive only rounded approximate distance.
+- Provider identities are globally unique by provider/subject. Email coincidences do not merge accounts, cross-account links return `409`, and transactional unlinking cannot remove the final login method.
+- Google ID tokens and VK access tokens are verified by the backend. X/VK browser authorization uses expiring single-use state and PKCE; the verifier is AES-GCM encrypted at rest.
+- Phone OTPs are HMAC-digested, expire after five minutes, lock after five failures, are consumed atomically, and are protected by resend plus phone/IP/device limits. Production has no code-return or code-logging path.
+- Android requests foreground coarse/fine location only. Stored coordinates are quantized and another user's raw location fields are excluded by public DTO construction and regression tests.
 - Release Android networking rejects cleartext. The backend container runs as an unprivileged user on a read-only filesystem with no-new-privileges.
 - Development-only Premium activation and reset-token exposure return no usable production route/data.
 
 ## Secret handling
 
-`.env`, `local.properties`, signing keys, build products, and captures are ignored. `.env.example` contains no usable secrets. Rotate a credential immediately if it appears in logs, screenshots, issue trackers, or Git history.
+`.env`, `local.properties`, signing keys, build products, and captures are ignored. `.env.example` contains no usable secrets. Google/VK public mobile configuration may be supplied to Gradle, but backend VK secrets, OTP peppers, SMS credentials and private keys must never be Gradle properties. The native X client uses PKCE without an APK secret. Rotate a credential immediately if it appears in logs, screenshots, issue trackers, or Git history.
 
 ## Production threat controls still external
 

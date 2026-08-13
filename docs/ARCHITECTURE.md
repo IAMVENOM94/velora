@@ -5,6 +5,7 @@
 ```mermaid
 flowchart LR
     UI[Jetpack Compose features] --> VM[MainViewModel + StateFlow]
+    IDP[Google / Phone / X / VK] --> API
     VM --> UC[Domain use cases]
     UC --> RP[Repository contracts]
     RP --> DATA[Retrofit, WebSocket, DataStore]
@@ -18,11 +19,15 @@ The client follows pragmatic Clean Architecture and MVVM. One Android applicatio
 
 ## Android layers
 
-- UI: Compose screens for auth, onboarding, discover, profile detail, match, matches, chats, own profile, settings, recovery, and Premium. Navigation Compose owns the back stack and bottom-navigation state.
+- UI: Compose screens for localized auth, onboarding, discover, profile detail, match, matches, chats, own profile, settings, recovery, and Premium. Navigation Compose owns the back stack and bottom-navigation state.
 - Presentation: `MainViewModel` exposes one immutable `AppUiState` over `StateFlow`. It coordinates feature workflows and never calls Retrofit directly.
 - Domain: models, repository interfaces, and focused use cases for credentials, onboarding, likes, and messages.
-- Data: Retrofit DTOs and repositories, OkHttp authentication/refresh, resilient WebSocket reconnect, Coil image loading, encrypted session storage, and response cache.
+- Data: Retrofit DTOs and repositories, OkHttp authentication/refresh, provider adapters, foreground location, resilient WebSocket reconnect, Coil image loading, encrypted session storage, and response cache.
 - DI: Hilt binds repository and notification implementations and owns networking singletons.
+
+All visible copy lives in Android resources. `values/` is English and `values-ru/` is Russian; adding another locale requires a resource directory, not application-code branches. AppCompat per-app locales persist System/Russian/English selection across restarts, while the optional account preference is synchronized to the backend.
+
+Google authentication is isolated behind Credential Manager, VK behind the official VK ID adapter, and X behind the browser/custom-tab deep-link adapter. External credentials only prove identity; repositories exchange the verified provider result for the same encrypted Velora access/refresh session used by email login.
 
 Access and refresh tokens are encrypted with AES-GCM using a non-exportable Android Keystore key before being written to DataStore. Discover, conversation, and message responses have a small local cache for offline read states. Mutable server data remains authoritative.
 
@@ -30,6 +35,9 @@ Access and refresh tokens are encrypted with AES-GCM using a non-exportable Andr
 
 - Controllers expose auth, user/profile/media, dating/chat/safety, subscription, notification, and health endpoints.
 - Services own JWT issuance and rotation, notifications, migrations, PostgreSQL access, and S3-compatible object storage.
+- `auth_identities` maps email, Google, phone, X, and VK subjects onto one user. Provider email metadata never causes automatic account merging, and transactional unlinking preserves at least one login method.
+- Phone challenges are HMAC-protected, expiring, one-time records with cooldown, attempt lockout and phone/IP/device request limits. `SmsSender` separates development delivery from an unconfigured production adapter.
+- Profile coordinates live in the private `profile_locations` model. Discovery performs server-side radius filtering and returns only city, country and integer approximate distance.
 - Every migration runs once under a PostgreSQL advisory lock and is recorded in `schema_migrations`.
 - Likes and daily quotas use transactions and advisory locks. A reciprocal like atomically restores or creates the match and conversation.
 - Chat REST writes are persisted before a WebSocket event is broadcast. WebSocket membership is checked against an active match; heartbeat and client exponential reconnect handle transient disconnects.
@@ -45,4 +53,4 @@ Access and refresh tokens are encrypted with AES-GCM using a non-exportable Andr
 
 ## Privacy choices
 
-Coordinates exist only server-side. Discovery returns a rounded approximate distance in 5 km bands and never returns latitude or longitude. Chat photos require conversation membership; profile media has opaque UUID URLs. Blocking immediately ends an active match and removes both users from one another's discovery results.
+Coordinates exist only server-side and are quantized to three decimal places before storage. Android requests foreground location only and accepts approximate permission; users can instead save a city with no coordinates. Discovery returns an integer approximate distance (values under 1 km are represented as nearby) and never returns latitude, longitude, accuracy or source for another user. Chat photos require conversation membership; profile media has opaque UUID URLs. Blocking immediately ends an active match and removes both users from one another's discovery results.
