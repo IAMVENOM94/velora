@@ -1,9 +1,8 @@
 import 'reflect-metadata';
-import { Body, CanActivate, Controller, Delete, ExecutionContext, Get, Headers, HttpException, Injectable, Module, OnModuleDestroy, OnModuleInit, Param, Patch, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpException, Injectable, Module, OnModuleInit, Param, Patch, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags, DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { Pool } from 'pg';
 import * as bcrypt from 'bcrypt';
 import * as jwt from 'jsonwebtoken';
 import { randomBytes, randomUUID } from 'crypto';
@@ -13,23 +12,13 @@ import type { Response } from 'express';
 import { readFile, readdir } from 'fs/promises';
 import { join } from 'path';
 import {hashToken,imageSignatureMatches,isUuid,isValidEmail,isValidPassword,normalizeEmail} from './security';
+import {accessSecret,ActiveUserGuard,AuthService,configured,Db,JwtUser,refreshSecret} from './platform';
+import {Stage9AuthController,Stage9UserController,stage9Providers} from './stage9';
 
-type JwtUser={sub:string,email:string};
-const configured=(name:string)=>{const value=process.env[name];if(!value)throw new Error(`${name} is required`);const normalized=value.toLowerCase();if(process.env.NODE_ENV==='production'&&(value.length<16||normalized.includes('replace')||normalized.includes('change-me')))throw new Error(`${name} must be configured securely`);return value};
-const jwtSecret=(name:string)=>{const value=configured(name);if(process.env.NODE_ENV==='production'&&value.length<32)throw new Error(`${name} must contain at least 32 characters`);return value};
-const accessSecret=()=>jwtSecret('JWT_ACCESS_SECRET');
-const refreshSecret=()=>jwtSecret('JWT_REFRESH_SECRET');
 const genders=new Set(['woman','man','non_binary','other']);
 const datingGoals=new Set(['relationship','communication','dating','friendship','unknown']);
 const reportReasons=new Set(['harassment','spam','fake','inappropriate','underage','other']);
 const requireUuid=(value:unknown,label='id')=>{const id=String(value??'');if(!isUuid(id))throw new HttpException(`Invalid ${label}`,400);return id};
-
-@Injectable()
-class Db implements OnModuleDestroy {
- pool=new Pool({connectionString:configured('DATABASE_URL')});
- query(sql:string,args:any[]=[]){return this.pool.query(sql,args)}
- async onModuleDestroy(){await this.pool.end()}
-}
 
 @Injectable()
 class MigrationService implements OnModuleInit {
@@ -59,6 +48,7 @@ class MigrationService implements OnModuleInit {
     if(!existing.rowCount)return;
     const passwordMatches=await bcrypt.compare(password,existing.rows[0].password_hash);
     if(existing.rows[0].email!==email||!passwordMatches)await client.query('UPDATE users SET email=$2,password_hash=$3,updated_at=now() WHERE id=$1',[demoId,email,await bcrypt.hash(password,12)]);
+    await client.query("INSERT INTO auth_identities(user_id,provider,provider_subject,email,email_verified) VALUES($1,'email',$2,$3,true) ON CONFLICT(user_id,provider) DO UPDATE SET provider_subject=$2,email=$3,last_used_at=now()",[demoId,email,email]);
   }
 }
 
@@ -89,25 +79,11 @@ class StorageService {
   async remove(objectKey:string){await this.ready;await this.client.removeObject(this.bucket,objectKey)}
 }
 
-@Injectable()
-class AuthService {
-  constructor(private db:Db){}
-  access(user:JwtUser){return jwt.sign(user,accessSecret(),{expiresIn:(process.env.ACCESS_TTL??'15m') as any})}
-  async pair(user:JwtUser){const refresh=jwt.sign({...user,jti:randomUUID()},refreshSecret(),{expiresIn:`${process.env.REFRESH_TTL_DAYS??30}d` as any});await this.db.query('INSERT INTO refresh_tokens(user_id,token_hash,expires_at) VALUES($1,$2,now()+($3||\' days\')::interval)',[user.sub,hashToken(refresh),process.env.REFRESH_TTL_DAYS??30]);return{accessToken:this.access(user),refreshToken:refresh}}
-  user(auth?:string):JwtUser{if(!auth?.startsWith('Bearer '))throw new HttpException('Unauthorized',401);try{return jwt.verify(auth.slice(7),accessSecret()) as JwtUser}catch{throw new HttpException('Unauthorized',401)}}
-}
-
-@Injectable()
-class ActiveUserGuard implements CanActivate {
- constructor(private auth:AuthService,private db:Db){}
- async canActivate(context:ExecutionContext){const request=context.switchToHttp().getRequest();const user=this.auth.user(request.headers.authorization);const active=await this.db.query('SELECT 1 FROM users WHERE id=$1 AND active=true',[user.sub]);if(!active.rowCount)throw new HttpException('Unauthorized',401);request.user=user;return true}
-}
-
 @ApiTags('auth') @Controller('auth')
 class AuthController {
  constructor(private db:Db,private auth:AuthService){}
- @Post('register') async register(@Body() b:any){const email=normalizeEmail(b.email);if(!isValidEmail(email)||!isValidPassword(b.password))throw new HttpException('Valid email and 8-128 character password required',400);const password=await bcrypt.hash(b.password,12);const client=await this.db.pool.connect();try{await client.query('BEGIN');const r=await client.query('INSERT INTO users(email,password_hash) VALUES($1,$2) RETURNING id,email',[email,password]);await client.query('INSERT INTO subscriptions(user_id) VALUES($1)',[r.rows[0].id]);await client.query('INSERT INTO preferences(user_id) VALUES($1)',[r.rows[0].id]);await client.query('COMMIT');return this.auth.pair({sub:r.rows[0].id,email:r.rows[0].email})}catch(e:any){await client.query('ROLLBACK');if(e?.code==='23505')throw new HttpException('Account already exists',409);throw new HttpException('Registration failed',500)}finally{client.release()}}
- @Post('login') async login(@Body() b:any){const email=normalizeEmail(b.email);if(!isValidEmail(email)||typeof b.password!=='string')throw new HttpException('Invalid credentials',401);const r=await this.db.query('SELECT id,email,password_hash,active FROM users WHERE email=$1',[email]);if(!r.rowCount||!r.rows[0].active||!await bcrypt.compare(b.password,r.rows[0].password_hash))throw new HttpException('Invalid credentials',401);return this.auth.pair({sub:r.rows[0].id,email:r.rows[0].email})}
+ @Post('register') async register(@Body() b:any){const email=normalizeEmail(b.email);if(!isValidEmail(email)||!isValidPassword(b.password))throw new HttpException('Valid email and 8-128 character password required',400);const password=await bcrypt.hash(b.password,12);const client=await this.db.pool.connect();try{await client.query('BEGIN');const r=await client.query('INSERT INTO users(email,password_hash) VALUES($1,$2) RETURNING id,email',[email,password]);await client.query('INSERT INTO subscriptions(user_id) VALUES($1)',[r.rows[0].id]);await client.query('INSERT INTO preferences(user_id) VALUES($1)',[r.rows[0].id]);await client.query("INSERT INTO auth_identities(user_id,provider,provider_subject,email,email_verified) VALUES($1,'email',$2,$3,false)",[r.rows[0].id,email,email]);await client.query('COMMIT');return this.auth.pair({sub:r.rows[0].id,email:r.rows[0].email})}catch(e:any){await client.query('ROLLBACK');if(e?.code==='23505')throw new HttpException('Account already exists',409);throw new HttpException('Registration failed',500)}finally{client.release()}}
+ @Post('login') async login(@Body() b:any){const email=normalizeEmail(b.email);if(!isValidEmail(email)||typeof b.password!=='string')throw new HttpException('Invalid credentials',401);const r=await this.db.query('SELECT id,email,password_hash,active FROM users WHERE email=$1',[email]);if(!r.rowCount||!r.rows[0].active||typeof r.rows[0].password_hash!=='string'||!await bcrypt.compare(b.password,r.rows[0].password_hash))throw new HttpException('Invalid credentials',401);await this.db.query("UPDATE auth_identities SET last_used_at=now() WHERE user_id=$1 AND provider='email'",[r.rows[0].id]).catch(()=>{});return this.auth.pair({sub:r.rows[0].id,email:r.rows[0].email})}
  @Post('refresh') async refresh(@Body() b:any){try{const u=jwt.verify(b.refreshToken,refreshSecret()) as JwtUser;const r=await this.db.query('UPDATE refresh_tokens rt SET revoked_at=now() FROM users u WHERE rt.user_id=u.id AND u.active=true AND rt.token_hash=$1 AND rt.revoked_at IS NULL AND rt.expires_at>now() RETURNING rt.id',[hashToken(b.refreshToken)]);if(!r.rowCount)throw 0;return this.auth.pair({sub:u.sub,email:u.email})}catch{throw new HttpException('Invalid refresh token',401)}}
  @Post('logout') async logout(@Body() b:any){if(b.refreshToken)await this.db.query('UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=$1',[hashToken(b.refreshToken)]);return{ok:true}}
  @Post('recover') async recover(@Body() b:any){const email=normalizeEmail(b.email);const user=isValidEmail(email)?await this.db.query('SELECT id FROM users WHERE email=$1 AND active=true',[email]):{rowCount:0,rows:[]};let developmentToken:string|undefined;if(user.rowCount){const token=randomBytes(32).toString('hex');await this.db.query('UPDATE password_reset_tokens SET used_at=now() WHERE user_id=$1 AND used_at IS NULL',[user.rows[0].id]);await this.db.query("INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '30 minutes')",[user.rows[0].id,hashToken(token)]);if(process.env.NODE_ENV!=='production')developmentToken=token}return{ok:true,...(developmentToken?{developmentToken}:{})}}
@@ -171,8 +147,8 @@ class DatingController {
  }
 @Get('discover') async discover(@Headers('authorization') a:string,@Query('limit') l='20'){
   const id=this.uid(a);const limit=Math.min(Math.max(Number(l)||20,1),50);
-  const distance=`sqrt(power((p.latitude-me.latitude)::double precision*111,2)+power((p.longitude-me.longitude)::double precision*111*cos(radians(me.latitude::double precision)),2))`;
-  const r=await this.db.query(`SELECT p.user_id,p.name,extract(year from age(p.birth_date))::int age,p.city,p.bio,p.dating_goal,p.online_at,ARRAY(SELECT i.name FROM user_interests ui JOIN interests i ON i.id=ui.interest_id WHERE ui.user_id=p.user_id ORDER BY i.name) interests,ARRAY(SELECT '/media/'||ph.id::text FROM photos ph WHERE ph.user_id=p.user_id ORDER BY ph.position) photos,CASE WHEN me.latitude IS NULL OR p.latitude IS NULL THEN NULL ELSE GREATEST(1,(round((${distance})/5)*5)::int) END distance_km FROM profiles p JOIN users candidate ON candidate.id=p.user_id AND candidate.active=true JOIN preferences pref ON pref.user_id=$1 JOIN profiles me ON me.user_id=$1 WHERE p.user_id<>$1 AND p.hidden=false AND p.onboarding_complete=true AND extract(year from age(p.birth_date)) BETWEEN pref.min_age AND pref.max_age AND p.gender=ANY(pref.show_genders) AND (me.latitude IS NULL OR p.latitude IS NULL OR ${distance}<=pref.max_distance_km) AND NOT EXISTS(SELECT 1 FROM likes WHERE from_user_id=$1 AND to_user_id=p.user_id) AND NOT EXISTS(SELECT 1 FROM discover_actions da WHERE da.user_id=$1 AND da.target_user_id=p.user_id AND da.kind='pass' AND da.created_at>now()-interval '7 days') AND NOT EXISTS(SELECT 1 FROM blocks WHERE (blocker_id=$1 AND blocked_id=p.user_id) OR (blocker_id=p.user_id AND blocked_id=$1)) ORDER BY (p.boosted_until>now()) DESC,p.online_at DESC NULLS LAST,p.user_id LIMIT $2`,[id,limit]);
+  const distance=`sqrt(power((candidate_location.latitude-me_location.latitude)::double precision*111,2)+power((candidate_location.longitude-me_location.longitude)::double precision*111*cos(radians(me_location.latitude::double precision)),2))`;
+  const r=await this.db.query(`SELECT p.user_id,p.name,extract(year from age(p.birth_date))::int age,COALESCE(candidate_location.city,p.city) city,candidate_location.country,p.bio,p.dating_goal,p.online_at,ARRAY(SELECT i.name FROM user_interests ui JOIN interests i ON i.id=ui.interest_id WHERE ui.user_id=p.user_id ORDER BY i.name) interests,ARRAY(SELECT '/media/'||ph.id::text FROM photos ph WHERE ph.user_id=p.user_id ORDER BY ph.position) photos,COALESCE((SELECT jsonb_agg(jsonb_build_object('provider',sp.provider,'username',sp.username,'profileUrl',sp.profile_url) ORDER BY sp.provider) FROM social_profiles sp WHERE sp.user_id=p.user_id AND sp.visible_in_profile), '[]'::jsonb) social_profiles,CASE WHEN me_location.latitude IS NULL OR candidate_location.latitude IS NULL THEN NULL WHEN ${distance}<1 THEN 0 ELSE round(${distance})::int END distance_km FROM profiles p JOIN users candidate ON candidate.id=p.user_id AND candidate.active=true JOIN preferences pref ON pref.user_id=$1 JOIN profiles me ON me.user_id=$1 LEFT JOIN profile_locations me_location ON me_location.user_id=me.user_id LEFT JOIN profile_locations candidate_location ON candidate_location.user_id=p.user_id WHERE p.user_id<>$1 AND p.hidden=false AND p.onboarding_complete=true AND extract(year from age(p.birth_date)) BETWEEN pref.min_age AND pref.max_age AND p.gender=ANY(pref.show_genders) AND (me_location.latitude IS NULL OR candidate_location.latitude IS NULL OR ${distance}<=pref.max_distance_km) AND NOT EXISTS(SELECT 1 FROM likes WHERE from_user_id=$1 AND to_user_id=p.user_id) AND NOT EXISTS(SELECT 1 FROM discover_actions da WHERE da.user_id=$1 AND da.target_user_id=p.user_id AND da.kind='pass' AND da.created_at>now()-interval '7 days') AND NOT EXISTS(SELECT 1 FROM blocks WHERE (blocker_id=$1 AND blocked_id=p.user_id) OR (blocker_id=p.user_id AND blocked_id=$1)) ORDER BY (p.boosted_until>now()) DESC,p.online_at DESC NULLS LAST,p.user_id LIMIT $2`,[id,limit]);
   return r.rows.map(p=>({...p,photo:p.photos[0]??null,online:Boolean(p.online_at&&Date.now()-new Date(p.online_at).getTime()<5*60_000)}))
 }
  @Get('likes') async receivedLikes(@Headers('authorization') a:string){const id=this.uid(a);const premium=Boolean((await this.db.query("SELECT 1 FROM subscriptions WHERE user_id=$1 AND tier='premium' AND (valid_until IS NULL OR valid_until>now())",[id])).rowCount);const count=Number((await this.db.query('SELECT count(*) count FROM likes WHERE to_user_id=$1',[id])).rows[0].count);if(!premium)return{count,locked:true,people:[]};const people=(await this.db.query(`SELECT p.user_id,p.name,extract(year from age(p.birth_date))::int age,l.kind,(SELECT id FROM photos WHERE user_id=p.user_id ORDER BY position LIMIT 1) photo_id FROM likes l JOIN profiles p ON p.user_id=l.from_user_id WHERE l.to_user_id=$1 ORDER BY l.created_at DESC`,[id])).rows;return{count,locked:false,people:people.map(p=>({...p,photo:p.photo_id?`/media/${p.photo_id}`:null}))}}
@@ -202,7 +178,7 @@ class DatingController {
 }
 
 @Controller() class HealthController{constructor(private db:Db){} @Get('health')async health(){await this.db.query('SELECT 1');return{status:'ok'}}}
-@Module({controllers:[AuthController,UserController,MediaController,DatingController,NotificationsController,SubscriptionController,HealthController],providers:[Db,MigrationService,AuthService,ActiveUserGuard,PushGateway,NotificationService,StorageService]}) class AppModule{}
+@Module({controllers:[AuthController,Stage9AuthController,UserController,Stage9UserController,MediaController,DatingController,NotificationsController,SubscriptionController,HealthController],providers:[Db,MigrationService,AuthService,ActiveUserGuard,PushGateway,NotificationService,StorageService,...stage9Providers]}) class AppModule{}
 
 type ChatSocket=WebSocket&{userId?:string;conversationId?:string;alive?:boolean};
 const sockets=new Map<string,Set<ChatSocket>>();
