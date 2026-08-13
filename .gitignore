@@ -1,8 +1,12 @@
 *.iml
 .gradle/
+.kotlin/
 .idea/
 local.properties
 **/build/
 .env
+backend/node_modules/
+backend/dist/
 captures/
 *.jks
+*.keystore
