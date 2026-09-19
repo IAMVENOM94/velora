@@ -14,5 +14,6 @@ private val Context.cacheDataStore by preferencesDataStore("response_cache")
 @Singleton class ResponseCache @Inject constructor(@ApplicationContext private val context:Context){
     suspend fun put(key:String,json:String){context.cacheDataStore.edit{it[stringPreferencesKey(key)]=json}}
     suspend fun get(key:String)=context.cacheDataStore.data.map{it[stringPreferencesKey(key)]}.first()
+    suspend fun remove(key:String){context.cacheDataStore.edit{it.remove(stringPreferencesKey(key))}}
     suspend fun clear(){context.cacheDataStore.edit{it.clear()}}
 }

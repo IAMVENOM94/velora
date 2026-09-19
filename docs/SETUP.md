@@ -77,6 +77,14 @@ Restart/rebuild the backend after changing `.env`. Rebuild Android after changin
 
 `MINIO_ENDPOINT` is the backend's internal S3 address. `MINIO_PUBLIC_ENDPOINT` is embedded into presigned upload URLs and must be reachable by the uploading client (for example an HTTPS storage hostname in production). Android currently uses the authenticated direct-upload route, so the default host-only MinIO URL is sufficient for emulator development.
 
+## Stage 10 media, push, and abuse controls
+
+- Set the same `PROFILE_PHOTO_LIMIT` (`1..9`, default 9) for backend and Android builds. Backend accepts `PROFILE_IMAGE_MAX_BYTES`, `PROFILE_IMAGE_MAX_DIMENSION`, and `PROFILE_IMAGE_MAX_PIXELS` overrides; conservative defaults reject decompression bombs before storage.
+- MinIO stores only generated profile derivatives. Every accepted source is decoded and rewritten, so EXIF GPS, IPTC, XMP, and the original high-resolution payload are not served to clients.
+- With no FCM credentials, notification creation, device registration, lifecycle, and delivery-attempt records use the development sender. For production set `FCM_PROJECT_ID` and configure Google Application Default Credentials; `FCM_SERVICE_ACCOUNT_JSON` is an environment-only fallback. Never add a service-account JSON file or inline value to Git.
+- `RATE_LIMIT_MULTIPLIER=1` is mandatory in production. A larger development value exists only to keep repeated integration suites behind one NAT from poisoning each other.
+- The current WebSocket presence hub is single-instance. Before horizontally scaling backend replicas, deploy a shared fan-out/presence adapter such as Redis and retain PostgreSQL as the durable message/read source of truth.
+
 ## Backend without Docker build
 
 Keep PostgreSQL and MinIO running through Compose, then:
@@ -109,6 +117,17 @@ cd ..
 .\gradlew.bat connectedDebugAndroidTest --no-daemon
 ```
 
+Release verification requires an HTTPS API URL and scans the resulting unsigned APK:
+
+```powershell
+.\gradlew.bat assembleRelease -PVELORA_API_BASE_URL=https://api.example.com/
+.\scripts\scan-release-apk.ps1
+```
+
+The APK is written to `app/build/outputs/apk/release/app-release-unsigned.apk`; store signing is deliberately external to this repository.
+
+To verify migrations, start from a temporary empty database and confirm `schema_migrations` lists 001-009. For an upgrade rehearsal, restore a Stage 9 backup containing 001-007, start the current backend once, and confirm 008/009 apply transactionally. Never rehearse destructive rollback/drop commands against the canonical development or production database.
+
 ## Common problems
 
 - `10.0.2.2` works only from Android Emulator. Use a reachable host address for hardware.
@@ -118,4 +137,4 @@ cd ..
 
 ## Production checklist
 
-Use managed PostgreSQL/S3-compatible storage, HTTPS ingress, strong external secrets, restricted CORS, rate limiting/WAF, structured logs and alerting, backups, a real push provider, email/SMS recovery delivery, store signing, privacy/legal review, and a real billing provider. The development Premium/reset endpoints automatically disappear in production mode.
+Use managed PostgreSQL/S3-compatible storage, HTTPS ingress, strong external secrets, restricted CORS, rate limiting/WAF, structured logs and alerting, backups, a real push provider, email/SMS recovery delivery, store signing, privacy/legal review, and a real billing provider. Run the scheduled account purge/anonymization job for rows whose `purge_after` has elapsed, retaining inaccessible abuse/security evidence only for the documented policy window. The development Premium/reset endpoints automatically disappear in production mode.

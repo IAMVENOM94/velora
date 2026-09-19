@@ -11,6 +11,7 @@ import app.velora.domain.repository.*
 import app.velora.domain.usecase.*
 import app.velora.location.ForegroundLocationProvider
 import app.velora.location.LocationResult
+import app.velora.network.ConnectivityObserver
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -32,11 +33,19 @@ data class AppUiState(
     val me: MyProfile? = null,
     val profilePhotos: List<ProfilePhoto> = emptyList(),
     val discover: List<DiscoverProfile> = emptyList(),
+    val discoverCursor: String? = null,
     val matches: List<MatchSummary> = emptyList(),
+    val matchesCursor: String? = null,
     val conversations: List<Conversation> = emptyList(),
+    val conversationsCursor: String? = null,
     val activeConversationId: String? = null,
     val messages: List<ChatMessage> = emptyList(),
+    val messagesCursor: String? = null,
+    val publicProfile: PublicProfile? = null,
+    val publicProfileUserId: String? = null,
+    val publicProfileLoading: Boolean = false,
     val preferences: SearchPreferences = SearchPreferences(),
+    val privacy: PrivacySettings = PrivacySettings(),
     val pendingMatch: MatchResult? = null,
     val matchedProfile: DiscoverProfile? = null,
     val typing: Boolean = false,
@@ -71,15 +80,30 @@ class MainViewModel @Inject constructor(
     private val photos: PhotoRepository,
     private val pushRegistration: PushRegistration,
     private val locationProvider: ForegroundLocationProvider,
+    private val connectivity: ConnectivityObserver,
 ) : ViewModel() {
     private val _state = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = _state.asStateFlow()
     private var realtimeJob: Job? = null
     private var typingJob: Job? = null
     private var typingActive = false
+    private var loadingMoreDiscover = false
+    private var loadingMoreMatches = false
+    private var loadingMoreConversations = false
+    private var loadingOlderMessages = false
+    private var loadingMoreLikes = false
 
     init {
         viewModelScope.launch { loadProviderAvailability() }
+        viewModelScope.launch {
+            connectivity.connected.collect { connected ->
+                if(!connected)_state.update{it.copy(offline=true)}
+                else if(_state.value.offline&&_state.value.phase==SessionPhase.Ready){
+                    _state.value.activeConversationId?.let(::openConversation)
+                    loadHome()
+                }
+            }
+        }
         viewModelScope.launch {
             tokenStore.hasSession.distinctUntilChanged().collectLatest { hasSession ->
                 if (!hasSession) _state.update { current ->
@@ -270,9 +294,9 @@ class MainViewModel @Inject constructor(
     }
 
     suspend fun loadHome() = coroutineScope {
-        val discoveredTask = async { dating.discover() }
-        val matchesTask = async { dating.matches() }
-        val conversationsTask = async { chat.conversations() }
+        val discoveredTask = async { dating.discoverPage() }
+        val matchesTask = async { dating.matchesPage() }
+        val conversationsTask = async { chat.conversationsPage() }
         val preferencesTask = async { dating.preferences() }
         val blocksTask = async { dating.blocks() }
         val subscriptionTask = async { dating.subscription() }
@@ -281,6 +305,7 @@ class MainViewModel @Inject constructor(
         val identitiesTask = async { profile.identities() }
         val locationTask = async { profile.location() }
         val socialTask = async { profile.socialProfiles() }
+        val privacyTask = async { dating.privacy() }
         val discovered = discoveredTask.await()
         val matched = matchesTask.await()
         val conversations = conversationsTask.await()
@@ -292,12 +317,16 @@ class MainViewModel @Inject constructor(
         val identities = identitiesTask.await()
         val location = locationTask.await()
         val social = socialTask.await()
+        val privacy = privacyTask.await()
         val core = listOf(discovered, matched, conversations)
         _state.update {
             it.copy(
-                discover = (discovered as? DataResult.Success)?.value ?: it.discover,
-                matches = (matched as? DataResult.Success)?.value ?: it.matches,
-                conversations = (conversations as? DataResult.Success)?.value ?: it.conversations,
+                discover = (discovered as? DataResult.Success)?.value?.items ?: it.discover,
+                discoverCursor = (discovered as? DataResult.Success)?.value?.nextCursor,
+                matches = (matched as? DataResult.Success)?.value?.items ?: it.matches,
+                matchesCursor = (matched as? DataResult.Success)?.value?.nextCursor,
+                conversations = (conversations as? DataResult.Success)?.value?.items ?: it.conversations,
+                conversationsCursor = (conversations as? DataResult.Success)?.value?.nextCursor,
                 preferences = (preferences as? DataResult.Success)?.value ?: it.preferences,
                 blockedUsers = (blocks as? DataResult.Success)?.value ?: it.blockedUsers,
                 subscription = (subscription as? DataResult.Success)?.value ?: it.subscription,
@@ -306,6 +335,7 @@ class MainViewModel @Inject constructor(
                 identities = (identities as? DataResult.Success)?.value ?: it.identities,
                 profileLocation = (location as? DataResult.Success)?.value ?: it.profileLocation,
                 socialProfiles = (social as? DataResult.Success)?.value ?: it.socialProfiles,
+                privacy = (privacy as? DataResult.Success)?.value ?: it.privacy,
                 offline = core.filterIsInstance<DataResult.Success<*>>().any { value -> value.fromCache },
                 error = core.filterIsInstance<DataResult.Failure>().firstOrNull()?.let { failure -> messageFor(failure.message) },
                 homeLoaded = true,
@@ -314,31 +344,67 @@ class MainViewModel @Inject constructor(
     }
 
     fun refresh() = task { loadHome() }
+    fun refreshConnections() {
+        viewModelScope.launch {
+            coroutineScope {
+                val matchesTask = async { dating.matchesPage() }
+                val conversationsTask = async { chat.conversationsPage() }
+                val matched = matchesTask.await()
+                val conversations = conversationsTask.await()
+                _state.update {
+                    it.copy(
+                        matches = (matched as? DataResult.Success)?.value?.items ?: it.matches,
+                        matchesCursor = if (matched is DataResult.Success) matched.value.nextCursor else it.matchesCursor,
+                        conversations = (conversations as? DataResult.Success)?.value?.items ?: it.conversations,
+                        conversationsCursor = if (conversations is DataResult.Success) conversations.value.nextCursor else it.conversationsCursor,
+                        offline = listOf(matched, conversations).filterIsInstance<DataResult.Success<*>>().any { result -> result.fromCache },
+                        error = listOf(matched, conversations).filterIsInstance<DataResult.Failure>().firstOrNull()?.let { failure -> messageFor(failure.message) },
+                    )
+                }
+            }
+        }
+    }
+    fun loadPublicProfile(userId: String, force: Boolean = false) {
+        if (!force && _state.value.publicProfileUserId == userId && _state.value.publicProfile != null) return
+        _state.update { it.copy(publicProfileUserId = userId, publicProfile = null, publicProfileLoading = true, error = null) }
+        viewModelScope.launch {
+            when (val result = dating.publicProfile(userId)) {
+                is DataResult.Success -> _state.update { it.copy(publicProfile = result.value, publicProfileLoading = false, offline = result.fromCache) }
+                is DataResult.Failure -> _state.update { it.copy(publicProfileLoading = false, error = messageFor(result.message)) }
+            }
+        }
+    }
+    fun clearPublicProfile() = _state.update { it.copy(publicProfile = null, publicProfileUserId = null, publicProfileLoading = false) }
+    fun loadMoreDiscover() { val cursor=_state.value.discoverCursor?:return;if(loadingMoreDiscover)return;loadingMoreDiscover=true;viewModelScope.launch { try { when(val result=dating.discoverPage(cursor)){is DataResult.Success->_state.update{it.copy(discover=(it.discover+result.value.items).distinctBy(DiscoverProfile::id),discoverCursor=result.value.nextCursor)};is DataResult.Failure->fail(result)} } finally { loadingMoreDiscover=false } } }
+    fun loadMoreMatches() { val cursor=_state.value.matchesCursor?:return;if(loadingMoreMatches)return;loadingMoreMatches=true;viewModelScope.launch { try { when(val result=dating.matchesPage(cursor)){is DataResult.Success->_state.update{it.copy(matches=(it.matches+result.value.items).distinctBy(MatchSummary::id),matchesCursor=result.value.nextCursor)};is DataResult.Failure->fail(result)} } finally { loadingMoreMatches=false } } }
+    fun loadMoreConversations() { val cursor=_state.value.conversationsCursor?:return;if(loadingMoreConversations)return;loadingMoreConversations=true;viewModelScope.launch { try { when(val result=chat.conversationsPage(cursor)){is DataResult.Success->_state.update{it.copy(conversations=(it.conversations+result.value.items).distinctBy(Conversation::id),conversationsCursor=result.value.nextCursor)};is DataResult.Failure->fail(result)} } finally { loadingMoreConversations=false } } }
+    fun loadMoreLikes() { val cursor=_state.value.receivedLikes.nextCursor?:return;if(loadingMoreLikes)return;loadingMoreLikes=true;viewModelScope.launch { try { when(val result=dating.receivedLikesPage(cursor)){is DataResult.Success->_state.update{it.copy(receivedLikes=result.value.copy(people=(it.receivedLikes.people+result.value.people).distinctBy(ReceivedLike::id)))};is DataResult.Failure->fail(result)} } finally { loadingMoreLikes=false } } }
     fun like(userId: String, superLike: Boolean = false) = task {
         when (val result = likeUseCase(userId, superLike)) {
             is DataResult.Success -> {
-                _state.update { state -> state.copy(discover = state.discover.filterNot { it.id == userId }, pendingMatch = if (result.value.matched) result.value else null, matchedProfile = if (result.value.matched) state.discover.firstOrNull { it.id == userId } else null) }
-                if (!result.value.matched) loadHome()
+                _state.update { state -> state.copy(discover = state.discover.filterNot { it.id == userId }, pendingMatch = if (result.value.matched) result.value else null, matchedProfile = if (result.value.matched) state.discover.firstOrNull { it.id == userId }?:state.publicProfile?.takeIf{it.userId==userId}?.discoverSummary() else null,publicProfile=state.publicProfile?.takeIf{it.userId==userId}?.copy(relationshipState=if(result.value.matched)"MATCHED" else "LIKED",matchId=result.value.matchId,conversationId=result.value.conversationId,canMessage=result.value.matched)?:state.publicProfile) }
+                if (_state.value.discover.size <= 3) loadMoreDiscover()
             }
             is DataResult.Failure -> fail(result)
         }
     }
 
-    fun skip(userId: String) = task { when (val result = dating.pass(userId)) { is DataResult.Success -> { _state.update { it.copy(discover = it.discover.filterNot { person -> person.id == userId }) }; if (_state.value.discover.isEmpty()) loadHome() }; is DataResult.Failure -> fail(result) } }
+    fun skip(userId: String) = task { when (val result = dating.pass(userId)) { is DataResult.Success -> { _state.update { it.copy(discover = it.discover.filterNot { person -> person.id == userId }) }; if (_state.value.discover.size <= 3) loadMoreDiscover() }; is DataResult.Failure -> fail(result) } }
     fun rewind() = task { when (val result = dating.rewind()) { is DataResult.Success -> loadHome(); is DataResult.Failure -> fail(result) } }
     fun consumeMatch() = _state.update { it.copy(pendingMatch = null, matchedProfile = null) }
 
     fun openConversation(id: String) {
-        _state.update { it.copy(activeConversationId = id, messages = emptyList(), typing = false, peerOnline = false) }
+        _state.update { it.copy(activeConversationId = id, messages = emptyList(), messagesCursor = null, typing = false, peerOnline = false) }
         realtimeJob?.cancel()
         realtimeJob = viewModelScope.launch {
-            when (val result = chat.messages(id)) { is DataResult.Success -> _state.update { it.copy(messages = result.value, offline = result.fromCache) }; is DataResult.Failure -> fail(result) }
+            when (val result = chat.messagesPage(id)) { is DataResult.Success -> _state.update { it.copy(messages = result.value.items, messagesCursor = result.value.nextCursor, offline = result.fromCache) }; is DataResult.Failure -> fail(result) }
             chat.markRead(id)
             chat.realtime(id).collect { event ->
                 when (event) {
                     is ChatEvent.Message -> _state.update { it.copy(messages = (it.messages + event.value).distinctBy { message -> message.id }) }
                     is ChatEvent.Typing -> if (event.userId != _state.value.me?.id) _state.update { it.copy(typing = event.active) }
                     is ChatEvent.Online -> if (event.userId != _state.value.me?.id) _state.update { it.copy(peerOnline = event.active) }
+                    is ChatEvent.Delivered -> _state.update { state -> state.copy(messages = state.messages.map { message -> if (message.id in event.messageIds) message.copy(deliveredAt = "now") else message }) }
                     is ChatEvent.Read -> _state.update { state -> state.copy(messages = state.messages.map { message -> if (message.id in event.messageIds) message.copy(readAt = "now") else message }) }
                     is ChatEvent.Error -> _state.update { it.copy(error = UiMessage(R.string.error_server), offline = true) }
                     ChatEvent.Connected -> _state.update { it.copy(offline = false) }
@@ -347,15 +413,20 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun loadOlderMessages() { val id=_state.value.activeConversationId?:return;val cursor=_state.value.messagesCursor?:return;if(loadingOlderMessages)return;loadingOlderMessages=true;viewModelScope.launch { try { when(val result=chat.messagesPage(id,cursor)){is DataResult.Success->_state.update{it.copy(messages=(result.value.items+it.messages).distinctBy(ChatMessage::id),messagesCursor=result.value.nextCursor)};is DataResult.Failure->fail(result)} } finally { loadingOlderMessages=false } } }
+
     fun sendMessage(body: String, replyToId: String? = null) { val id = _state.value.activeConversationId ?: return; viewModelScope.launch { when (val result = sendMessageUseCase(id, body, replyToId)) { is DataResult.Success -> _state.update { it.copy(messages = (it.messages + result.value).distinctBy { message -> message.id }) }; is DataResult.Failure -> fail(result) } } }
     fun sendPhoto(bytes: ByteArray, mimeType: String, replyToId: String? = null) { val id = _state.value.activeConversationId ?: return; task { when (val result = chat.sendPhoto(id, bytes, mimeType, replyToId)) { is DataResult.Success -> _state.update { it.copy(messages = (it.messages + result.value).distinctBy { message -> message.id }) }; is DataResult.Failure -> fail(result) } } }
     fun setTyping(active: Boolean) { val id = _state.value.activeConversationId ?: return; if (active && !typingActive) { typingActive = true; chat.sendTyping(id, true) }; typingJob?.cancel(); typingJob = viewModelScope.launch { if (active) delay(1_500); typingActive = false; chat.sendTyping(id, false) } }
     fun updatePreferences(value: SearchPreferences) = task { when (val result = dating.updatePreferences(value)) { is DataResult.Success -> { _state.update { it.copy(preferences = result.value) }; loadHome() }; is DataResult.Failure -> fail(result) } }
-    fun block(userId: String) = task { when (val result = dating.block(userId)) { is DataResult.Success -> { _state.update { it.copy(discover = it.discover.filterNot { person -> person.id == userId }, conversations = it.conversations.filterNot { conversation -> conversation.otherUserId == userId }) }; loadHome() }; is DataResult.Failure -> fail(result) } }
+    fun block(userId: String) = task { when (val result = dating.block(userId)) { is DataResult.Success -> { _state.update { it.copy(discover = it.discover.filterNot { person -> person.id == userId }, conversations = it.conversations.filterNot { conversation -> conversation.otherUserId == userId },publicProfile=it.publicProfile?.takeIf{profile->profile.userId!=userId},publicProfileUserId=it.publicProfileUserId?.takeIf{profileId->profileId!=userId}) }; loadHome() }; is DataResult.Failure -> fail(result) } }
     fun unblock(userId: String) = task { when (val result = dating.unblock(userId)) { is DataResult.Success -> loadHome(); is DataResult.Failure -> fail(result) } }
-    fun unmatch(matchId: String) = task { when (val result = dating.unmatch(matchId)) { is DataResult.Success -> { realtimeJob?.cancel(); _state.update { it.copy(activeConversationId = null, messages = emptyList()) }; loadHome() }; is DataResult.Failure -> fail(result) } }
+    fun unmatch(matchId: String) = task { when (val result = dating.unmatch(matchId)) { is DataResult.Success -> { realtimeJob?.cancel(); _state.update { it.copy(activeConversationId = null, messages = emptyList(),publicProfile=it.publicProfile?.copy(relationshipState="NONE",matchId=null,conversationId=null,canMessage=false)) }; loadHome() }; is DataResult.Failure -> fail(result) } }
     fun report(userId: String, reason: String, details: String) = task { when (val result = dating.report(userId, reason, details)) { is DataResult.Success -> _state.update { it.copy(error = UiMessage(R.string.report_received)) }; is DataResult.Failure -> fail(result) } }
     fun setHidden(hidden: Boolean) = task { when (val result = profile.setHidden(hidden)) { is DataResult.Success -> _state.update { it.copy(me = it.me?.copy(hidden = hidden)) }; is DataResult.Failure -> fail(result) } }
+    fun updatePrivacy(value: PrivacySettings) = task { when(val result=dating.updatePrivacy(value)){is DataResult.Success->_state.update{it.copy(privacy=result.value,me=it.me?.copy(hidden=result.value.hideProfileTemporarily))};is DataResult.Failure->fail(result)} }
+    fun reorderPhotos(ids: List<String>) = task { when(val result=photos.reorder(ids)){is DataResult.Success->_state.update{it.copy(profilePhotos=result.value)};is DataResult.Failure->fail(result)} }
+    fun makePhotoMain(id: String) = task { when(val result=photos.makeMain(id)){is DataResult.Success->_state.update{it.copy(profilePhotos=result.value)};is DataResult.Failure->fail(result)} }
     fun activatePremium() = task { when (val result = dating.activateDevelopmentPremium()) { is DataResult.Success -> { _state.update { it.copy(subscription = result.value) }; loadHome() }; is DataResult.Failure -> fail(result) } }
     fun boost() = task { when (val result = dating.boost()) { is DataResult.Success -> _state.update { it.copy(error = UiMessage(R.string.boost_active)) }; is DataResult.Failure -> fail(result) } }
 
@@ -387,12 +458,16 @@ class MainViewModel @Inject constructor(
     fun removeInstagram() = task { when (val result = profile.removeInstagram()) { is DataResult.Success -> _state.update { it.copy(socialProfiles = it.socialProfiles.filterNot { social -> social.provider == "instagram" }) }; is DataResult.Failure -> fail(result) } }
 
     fun logout() { viewModelScope.launch { realtimeJob?.cancel(); pushRegistration.unregister(); auth.logout() } }
+    fun onAppBackground(){typingJob?.cancel();typingActive=false;_state.value.activeConversationId?.let{chat.sendTyping(it,false)};realtimeJob?.cancel()}
+    fun onAppForeground(){val conversationId=_state.value.activeConversationId;if(conversationId!=null)openConversation(conversationId)else if(_state.value.phase==SessionPhase.Ready)viewModelScope.launch{loadHome()}}
     fun deleteAccount() = task { pushRegistration.unregister(); when (val result = profile.deleteAccount()) { is DataResult.Success -> Unit; is DataResult.Failure -> fail(result) } }
     fun dismissError() = _state.update { it.copy(error = null) }
     fun showMessage(@StringRes resource: Int) = _state.update { it.copy(error = UiMessage(resource)) }
 
     private fun task(block: suspend () -> Unit) { viewModelScope.launch { _state.update { it.copy(busy = true, error = null) }; try { block() } finally { _state.update { it.copy(busy = false) } } } }
     private fun fail(value: DataResult.Failure) = _state.update { it.copy(error = messageFor(value.message)) }
+
+    private fun PublicProfile.discoverSummary()=DiscoverProfile(userId,displayName,age,city.orEmpty(),bio,relationshipGoal,distanceKm,photos.firstOrNull()?.mediumUrl,onlineStatus=="ONLINE",interests,photos.map{it.mediumUrl},gender,verified,onlineStatus)
 
     private fun messageFor(code: String): UiMessage = UiMessage(when (code.lowercase()) {
         "invalid_email" -> R.string.error_valid_email
@@ -403,13 +478,19 @@ class MainViewModel @Inject constructor(
         "interests_required" -> R.string.error_interests_required
         "preferences_required" -> R.string.error_preferences_required
         "message_empty" -> R.string.error_message_empty
-        "bad_data", "otp_incorrect", "otp_expired", "otp_consumed" -> R.string.error_bad_data
-        "session_expired" -> R.string.error_session_expired
+        "bad_data", "validation_error", "report_invalid", "message_too_long", "otp_incorrect", "otp_expired", "otp_consumed" -> R.string.error_bad_data
+        "session_expired", "session_invalid", "unauthorized" -> R.string.error_session_expired
         "premium_required" -> R.string.error_premium_required
+        "profile_unavailable", "own_profile" -> R.string.error_profile_unavailable
+        "conversation_unavailable", "match_not_found" -> R.string.error_conversation_closed
+        "photo_format_unsupported", "photo_mime_mismatch", "photo_corrupted", "photo_dimensions_too_large", "photo_pixel_limit", "photo_processing_failed", "photo_upload_invalid" -> R.string.error_photo_invalid
+        "photo_order_invalid", "photo_position_invalid", "photo_not_found" -> R.string.error_photo_order
+        "action_limit" -> R.string.error_action_limit
+        "super_like_limit" -> R.string.error_super_like_limit
         "not_found" -> R.string.error_not_found
-        "conflict", "identity_conflict", "provider_already_linked", "last_identity" -> R.string.error_conflict
-        "file_large" -> R.string.error_file_large
-        "rate_limit", "otp_rate_limit", "otp_cooldown", "otp_locked" -> R.string.error_rate_limit
+        "conflict", "idempotency_conflict", "identity_conflict", "provider_already_linked", "last_identity" -> R.string.error_conflict
+        "file_large", "payload_too_large", "photo_too_large" -> R.string.error_file_large
+        "rate_limit", "rate_limited", "otp_rate_limit", "otp_cooldown", "otp_locked" -> R.string.error_rate_limit
         "offline" -> R.string.error_offline
         "invalid_auth_response" -> R.string.invalid_credentials_response
         "unexpected" -> R.string.error_unexpected

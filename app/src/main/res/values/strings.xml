@@ -110,6 +110,7 @@
     <string name="mutual_like_hint">A mutual like will appear here.</string>
     <string name="no_conversations">No conversations yet</string>
     <string name="conversation_hint">When you match, start with something from their profile.</string>
+    <string name="start_chat_hint">Say hello</string>
     <string name="search_conversations">Search conversations</string>
     <string name="conversations_empty">Your conversations will appear here</string>
     <string name="chat_match_hint">Like someone who likes you back to start chatting.</string>
@@ -135,6 +136,7 @@
     <string name="shared_photo">Shared photo</string>
     <string name="reply">Reply</string>
     <string name="read">Read</string>
+    <string name="delivered">Delivered</string>
 
     <string name="settings">Settings</string>
     <string name="settings_discovery">DISCOVERY</string>
@@ -154,8 +156,8 @@
     <string name="sign_out">Sign out</string>
     <string name="delete_account">Delete account</string>
     <string name="delete_title">Delete your account?</string>
-    <string name="delete_body">This permanently removes your profile, photos, matches and messages. This cannot be undone.</string>
-    <string name="delete_permanently">Delete permanently</string>
+    <string name="delete_body">Your profile disappears immediately. Account data is scheduled for deletion after 30 days; limited safety and abuse records may be retained longer.</string>
+    <string name="delete_permanently">Delete account</string>
     <string name="language">LANGUAGE</string>
     <string name="language_system">System default</string>
     <string name="language_russian">Русский</string>
@@ -298,4 +300,47 @@
         <item>First name is perfect.</item><item>You must be 18 or older.</item><item>Choose what feels right.</item><item>You can change this anytime.</item><item>Use an approximate location or enter a city manually.</item><item>Profiles with 3+ photos get more connections.</item><item>A few honest words go a long way.</item><item>Pick at least three.</item><item>Set the intention, leave room for magic.</item>
     </string-array>
     <string name="person_profile_photo">%1$s profile photo</string>
+    <string name="profile_loading">Opening profile…</string>
+    <string name="profile_unavailable">This profile is unavailable</string>
+    <string name="try_again">Try again</string>
+    <string name="no_bio">No bio yet.</string>
+    <string name="gender">GENDER</string>
+    <string name="last_seen">LAST SEEN</string>
+    <string name="status_hidden">STATUS PRIVATE</string>
+    <string name="offline_status">OFFLINE</string>
+    <string name="matched_label">Matched</string>
+    <string name="liked_label">Liked</string>
+    <string name="likes_you_label">Likes you</string>
+    <string name="photo_load_failed">Photo couldn’t be loaded</string>
+    <string name="close_photo">Close photo</string>
+    <string name="photo_counter">%1$d of %2$d</string>
+    <string name="swipe_down_close">Swipe down to close · pinch to zoom</string>
+    <string name="report_person">Report %1$s</string>
+    <string name="report_spam">Spam</string>
+    <string name="report_fake">Fake profile</string>
+    <string name="report_harassment">Harassment</string>
+    <string name="report_inappropriate">Inappropriate content</string>
+    <string name="report_underage">Underage</string>
+    <string name="report_other">Other</string>
+    <string name="report_comment">Optional details</string>
+    <string name="submit_report">Send report</string>
+    <string name="view_profile">View profile</string>
+    <string name="load_earlier">Load earlier messages</string>
+    <string name="show_online_status">Show online status</string>
+    <string name="show_distance">Show approximate distance</string>
+    <string name="show_city">Show city</string>
+    <string name="discoverable_profile">Appear in Discover</string>
+    <string name="read_receipts">Share read receipts</string>
+    <string name="main_photo">Main photo</string>
+    <string name="photo_actions">Photo actions</string>
+    <string name="set_main_photo">Make main photo</string>
+    <string name="move_left">Move earlier</string>
+    <string name="move_right">Move later</string>
+    <string name="error_profile_unavailable">This profile is no longer available</string>
+    <string name="error_photo_invalid">This image can’t be used. Choose a valid JPEG, PNG, or WebP photo.</string>
+    <string name="error_photo_order">The photo order changed. Refresh and try again.</string>
+    <string name="error_conversation_closed">This conversation is no longer available</string>
+    <string name="error_action_limit">You’ve reached today’s discovery limit</string>
+    <string name="error_super_like_limit">You’ve used today’s Super Like</string>
+    <string name="offline_banner">Offline · showing saved data</string>
 </resources>

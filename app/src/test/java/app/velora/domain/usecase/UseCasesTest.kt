@@ -76,7 +76,9 @@ private class FakeProfile:ProfileRepository{
 private class FakeChat:ChatRepository{
     var lastBody:String?=null
     override suspend fun conversations()=DataResult.Success(emptyList<Conversation>())
+    override suspend fun conversationsPage(cursor:String?)=DataResult.Success(CursorPage(emptyList<Conversation>(),null))
     override suspend fun messages(conversationId:String)=DataResult.Success(emptyList<ChatMessage>())
+    override suspend fun messagesPage(conversationId:String,cursor:String?)=DataResult.Success(CursorPage(emptyList<ChatMessage>(),null))
     override suspend fun send(conversationId:String,body:String,replyToId:String?):DataResult<ChatMessage>{lastBody=body;return DataResult.Success(ChatMessage("id",conversationId,"me",body,null,replyToId,"now",null))}
     override suspend fun sendPhoto(conversationId:String,bytes:ByteArray,mimeType:String,replyToId:String?)=DataResult.Failure("unused")
     override suspend fun markRead(conversationId:String)=DataResult.Success(Unit)

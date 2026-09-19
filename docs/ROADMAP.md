@@ -1,6 +1,8 @@
+> Current portfolio status: active development. This historical development document is not evidence of a beta release or current end-to-end readiness. The 2026-09-19 verification and limitations are recorded in [PORTFOLIO_AUDIT.md](PORTFOLIO_AUDIT.md).
+
 # Roadmap
 
-## Completed development MVP
+## Completed closed-beta foundation
 
 - Dark premium Compose design system and all required product screens.
 - Clean domain/data/presentation boundaries, Hilt, navigation, validation, state and offline cache.
@@ -13,6 +15,8 @@
 - Russian/English resources, persistent per-app locale selection and optional account locale preference.
 - Foreground approximate/manual profile location with private storage and server-side distance filtering.
 - Provider-neutral account identities, Google Credential Manager, phone OTP, X PKCE, official VK ID adapter, account linking/unlink safety and Instagram profile links.
+- Safe ID-addressed public profiles from every core entry point, processed multi-photo galleries, fullscreen/zoom gestures, and server aggregate relationship state.
+- Server-enforced privacy/presence, cursor feeds, account-scoped offline cache, idempotent delivered/read chat, scoped anti-abuse limits, unified errors/request IDs, structured redacted logs, and soft-delete retention architecture.
 - JVM, Compose, backend unit, API/database/object-storage and WebSocket integration tests.
 - Secure environment templates, Docker Compose, verification scripts and operations documentation.
 
@@ -24,6 +28,7 @@
 - Register production Google, X and VK applications, redirect URIs and consent/publishing settings.
 - Add moderation console, image moderation, appeals and abuse-risk signals.
 - Deploy managed PostgreSQL and S3, edge rate limiting, observability, backups, KMS secrets, staging and CI/CD.
+- Move realtime fan-out/presence to a shared broker before adding backend replicas; schedule the documented account/object purge worker.
 - Add more locale resource packs, accessibility audit, adaptive tablet layouts and comprehensive end-to-end device farm coverage.
 
 ## Product evolution

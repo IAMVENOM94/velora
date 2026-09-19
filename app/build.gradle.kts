@@ -12,6 +12,10 @@ val veloraApiBaseUrl = providers.gradleProperty("VELORA_API_BASE_URL")
     .orElse("http://10.0.2.2:8080/")
     .get()
     .let { if (it.endsWith('/')) it else "$it/" }
+val profilePhotoLimit = providers.gradleProperty("PROFILE_PHOTO_LIMIT")
+    .orElse(providers.environmentVariable("PROFILE_PHOTO_LIMIT"))
+    .orElse("9")
+    .get().toIntOrNull()?.coerceIn(1, 9) ?: 9
 
 fun configuredValue(name: String): String = providers.gradleProperty(name)
     .orElse(providers.environmentVariable(name))
@@ -29,6 +33,7 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_BASE_URL", "\"${veloraApiBaseUrl.replace("\"", "\\\"")}\"")
+        buildConfigField("int", "PROFILE_PHOTO_LIMIT", profilePhotoLimit.toString())
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${configuredValue("GOOGLE_WEB_CLIENT_ID").replace("\"", "\\\"")}\"")
         buildConfigField("String", "VK_CLIENT_ID", "\"${configuredValue("VK_CLIENT_ID").replace("\"", "\\\"")}\"")
         buildConfigField("boolean", "VK_CONFIGURED", (configuredValue("VK_CLIENT_ID").isNotBlank() && configuredValue("VK_ANDROID_CLIENT_SECRET").isNotBlank()).toString())

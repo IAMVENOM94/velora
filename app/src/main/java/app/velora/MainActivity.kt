@@ -51,11 +51,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import app.velora.auth.*
 import app.velora.domain.model.*
 import app.velora.localization.AppLanguage
@@ -89,7 +94,7 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-enum class Screen { Splash, Login, Register, Recover, Phone, Onboarding, Discover, Detail, Match, Matches, Chats, Chat, Profile, Settings, Premium }
+enum class Screen { Splash, Login, Register, Recover, Phone, Onboarding, Discover, UserProfile, Match, Matches, Chats, Chat, Profile, Settings, Premium }
 private val Screen.route get() = name.lowercase()
 
 data class Person(
@@ -105,9 +110,11 @@ data class Person(
     val interests: List<String> = emptyList(),
     val goal: String = "unknown",
     val photoUrls: List<String> = emptyList(),
+    val verified: Boolean = false,
+    val onlineStatus: String = if(online) "ONLINE" else "RECENTLY_ONLINE",
 )
 
-fun DiscoverProfile.toPerson() = Person(id, name, age, city, distanceKm, bio, if (name.equals("Sofia", true)) R.drawable.sofia else R.drawable.maya, online, photoUrl, interests, goal, photoUrls)
+fun DiscoverProfile.toPerson() = Person(id, name, age, city, distanceKm, bio, if (name.equals("Sofia", true)) R.drawable.sofia else R.drawable.maya, online, photoUrl, interests, goal, photoUrls,verified,onlineStatus)
 
 @Composable
 fun VeloraApp(activity: MainActivity, callbackUri: Uri?, consumeCallback: () -> Unit, vm: MainViewModel = viewModel()) {
@@ -119,9 +126,12 @@ fun VeloraApp(activity: MainActivity, callbackUri: Uri?, consumeCallback: () -> 
     val browser = remember { BrowserOAuthAdapter() }
     var phoneLinkMode by rememberSaveable { mutableStateOf(false) }
     val backStackEntry by nav.currentBackStackEntryAsState()
-    val current = Screen.entries.firstOrNull { it.route == backStackEntry?.destination?.route } ?: Screen.Splash
+    val currentRoute=backStackEntry?.destination?.route
+    val current = if(currentRoute?.startsWith("user_profile/")==true)Screen.UserProfile else Screen.entries.firstOrNull { it.route == currentRoute } ?: Screen.Splash
     var splashDone by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(800); splashDone = true }
+    val lifecycleOwner=LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner){val observer=LifecycleEventObserver{_,event->when(event){Lifecycle.Event.ON_START->vm.onAppForeground();Lifecycle.Event.ON_STOP->vm.onAppBackground();else->Unit}};lifecycleOwner.lifecycle.addObserver(observer);onDispose{lifecycleOwner.lifecycle.removeObserver(observer)}}
 
     fun navigate(target: Screen, root: Boolean = false) {
         nav.navigate(target.route) {
@@ -168,6 +178,7 @@ fun VeloraApp(activity: MainActivity, callbackUri: Uri?, consumeCallback: () -> 
     }
 
     val go: (Screen) -> Unit = { target ->
+        if (target == Screen.Matches || target == Screen.Chats) vm.refreshConnections()
         if (target != current) nav.navigate(target.route) {
             popUpTo(Screen.Discover.route) { saveState = true }
             launchSingleTop = true
@@ -180,6 +191,7 @@ fun VeloraApp(activity: MainActivity, callbackUri: Uri?, consumeCallback: () -> 
         val chosen = id ?: ui.conversations.firstOrNull()?.id ?: ui.pendingMatch?.conversationId
         if (chosen != null) { vm.openConversation(chosen); navigate(Screen.Chat) }
     }
+    val openProfile: (String) -> Unit = { userId -> vm.loadPublicProfile(userId);nav.navigate("user_profile/$userId"){launchSingleTop=true} }
 
     CompositionLocalProvider(LocalContentColor provides White) {
         Box(Modifier.fillMaxSize().background(Ink)) {
@@ -220,13 +232,18 @@ fun VeloraApp(activity: MainActivity, callbackUri: Uri?, consumeCallback: () -> 
                         onDoneWithLocation = vm::completeOnboarding,
                     )
                 }
-                composable(Screen.Discover.route) { MainShell(Screen.Discover, go) { if (activePerson == null) DiscoverEmpty(ui.homeLoaded, ui.subscription.premium, vm::refresh, { navigate(Screen.Settings) }, vm::rewind) else DiscoverConnected(activePerson, { navigate(Screen.Detail) }, { vm.skip(activePerson.id) }, { vm.like(activePerson.id) }, { vm.like(activePerson.id, true) }, if (ui.subscription.premium) vm::rewind else null) } }
-                composable(Screen.Detail.route) { if (activePerson == null) DiscoverEmpty(ui.homeLoaded, ui.subscription.premium, { navigate(Screen.Discover) }, { navigate(Screen.Settings) }, vm::rewind) else ProfileDetailConnected(activePerson, { nav.popBackStack() }, { vm.like(activePerson.id) }, { vm.like(activePerson.id, true) }, { vm.block(activePerson.id); navigate(Screen.Discover) }, { vm.report(activePerson.id, "other", "profile") }) }
-                composable(Screen.Match.route) { MatchConnected(ui.me, ui.matchedProfile, { val id = ui.pendingMatch?.conversationId; vm.consumeMatch(); nav.popBackStack(); openChat(id) }, { vm.consumeMatch(); if (!nav.popBackStack(Screen.Discover.route, false)) navigate(Screen.Discover, true) }) }
-                composable(Screen.Matches.route) { MainShell(Screen.Matches, go) { MatchesConnected(ui.matches, ui.conversations, openChat) } }
-                composable(Screen.Chats.route) { MainShell(Screen.Chats, go) { ChatsConnected(ui.conversations, openChat) } }
-                composable(Screen.Chat.route) { ChatConnected(ui.messages, ui.me?.id, activeConversation, ui.typing, ui.peerOnline, { nav.popBackStack() }, vm::sendMessage, vm::sendPhoto, vm::setTyping, { activeConversation?.matchId?.let(vm::unmatch); navigate(Screen.Chats) }, { activeConversation?.otherUserId?.let(vm::block); navigate(Screen.Chats) }, { activeConversation?.otherUserId?.let { vm.report(it, "other", "conversation") } }) }
-                composable(Screen.Profile.route) { MainShell(Screen.Profile, go) { MyProfileConnected(ui.me, ui.profilePhotos, { navigate(Screen.Settings) }, { navigate(Screen.Premium) }, vm::saveProfile, vm::uploadPhoto, vm::deletePhoto, ui.profileLocation, ui.socialProfiles) } }
+                composable(Screen.Discover.route) { MainShell(Screen.Discover, go) { if (activePerson == null) DiscoverEmpty(ui.homeLoaded, ui.subscription.premium, vm::refresh, { navigate(Screen.Settings) }, vm::rewind) else DiscoverConnected(activePerson, { openProfile(activePerson.id) }, { vm.skip(activePerson.id) }, { vm.like(activePerson.id) }, { vm.like(activePerson.id, true) }, if (ui.subscription.premium) vm::rewind else null) } }
+                composable("user_profile/{userId}",arguments=listOf(navArgument("userId"){type=NavType.StringType})) { entry ->
+                    val userId=entry.arguments?.getString("userId").orEmpty();LaunchedEffect(userId){if(userId.isNotBlank())vm.loadPublicProfile(userId)}
+                    val openedFromChat=nav.previousBackStackEntry?.destination?.route==Screen.Chat.route
+                    val leaveAfterSafety:()->Unit={if(openedFromChat){if(!nav.popBackStack(Screen.Chats.route,false))navigate(Screen.Chats)}else nav.popBackStack()}
+                    UserProfileScreen(ui.publicProfile,ui.publicProfileLoading,{nav.popBackStack()},{vm.loadPublicProfile(userId,true)},{vm.like(userId)},{vm.skip(userId);nav.popBackStack()},{vm.like(userId,true)},{ui.publicProfile?.conversationId?.let(openChat)},{ui.publicProfile?.matchId?.let(vm::unmatch);leaveAfterSafety()},{vm.block(userId);leaveAfterSafety()},{reason,details->vm.report(userId,reason,details)})
+                }
+                composable(Screen.Match.route) { MatchConnected(ui.me, ui.matchedProfile, { val id = ui.pendingMatch?.conversationId; vm.consumeMatch(); nav.popBackStack(); openChat(id) }, { vm.consumeMatch(); if (!nav.popBackStack(Screen.Discover.route, false)) navigate(Screen.Discover, true) },{ui.matchedProfile?.id?.let(openProfile)}) }
+                composable(Screen.Matches.route) { MainShell(Screen.Matches, go) { MatchesConnected(ui.matches, ui.conversations, openChat,openProfile,vm::loadMoreMatches) } }
+                composable(Screen.Chats.route) { MainShell(Screen.Chats, go) { ChatsConnected(ui.conversations, openChat,openProfile,vm::loadMoreConversations) } }
+                composable(Screen.Chat.route) { ChatConnected(ui.messages, ui.me?.id, activeConversation, ui.typing, ui.peerOnline, { nav.popBackStack() }, vm::sendMessage, vm::sendPhoto, vm::setTyping, { activeConversation?.matchId?.let(vm::unmatch); navigate(Screen.Chats) }, { activeConversation?.otherUserId?.let(vm::block); navigate(Screen.Chats) }, { activeConversation?.otherUserId?.let { vm.report(it, "other", "conversation") } },{activeConversation?.otherUserId?.let(openProfile)},vm::loadOlderMessages) }
+                composable(Screen.Profile.route) { MainShell(Screen.Profile, go) { MyProfileConnected(ui.me, ui.profilePhotos, { navigate(Screen.Settings) }, { navigate(Screen.Premium) }, vm::saveProfile, vm::uploadPhoto, vm::deletePhoto, ui.profileLocation, ui.socialProfiles,vm::makePhotoMain,vm::reorderPhotos) } }
                 composable(Screen.Settings.route) {
                     SettingsConnected(
                         initial = ui.preferences,
@@ -234,7 +251,6 @@ fun VeloraApp(activity: MainActivity, callbackUri: Uri?, consumeCallback: () -> 
                         blocked = ui.blockedUsers,
                         onBack = { nav.popBackStack() },
                         onSave = vm::updatePreferences,
-                        onHidden = vm::setHidden,
                         onUnblock = vm::unblock,
                         onLogout = vm::logout,
                         onDelete = vm::deleteAccount,
@@ -254,11 +270,14 @@ fun VeloraApp(activity: MainActivity, callbackUri: Uri?, consumeCallback: () -> 
                         onUnlink = vm::unlinkIdentity,
                         onSaveInstagram = vm::saveInstagram,
                         onRemoveInstagram = vm::removeInstagram,
+                        privacy = ui.privacy,
+                        onPrivacy = vm::updatePrivacy,
                     )
                 }
-                composable(Screen.Premium.route) { PremiumConnected(ui.subscription, ui.receivedLikes, { nav.popBackStack() }, vm::activatePremium, vm::boost) }
+                composable(Screen.Premium.route) { PremiumConnected(ui.subscription, ui.receivedLikes, { nav.popBackStack() }, vm::activatePremium, vm::boost,openProfile,vm::loadMoreLikes) }
             }
-            if (ui.busy) CircularProgressIndicator(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 8.dp).size(24.dp), color = Pink, strokeWidth = 3.dp)
+            if(ui.offline&&ui.phase==SessionPhase.Ready)Surface(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top=8.dp).clickable{vm.refresh()},shape=CircleShape,color=Color(0xEE30243A),shadowElevation=8.dp){Row(Modifier.padding(horizontal=14.dp,vertical=9.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Default.CloudOff,null,tint=Pink,modifier=Modifier.size(17.dp));Spacer(Modifier.width(8.dp));Text(stringResource(R.string.offline_banner),style=MaterialTheme.typography.labelMedium)}}
+            if (ui.busy) CircularProgressIndicator(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = if(ui.offline)56.dp else 8.dp).size(24.dp), color = Pink, strokeWidth = 3.dp)
             ui.error?.let { message -> Snackbar(Modifier.align(Alignment.BottomCenter).padding(18.dp), action = { TextButton(vm::dismissError) { Text(stringResource(R.string.dismiss)) } }) { Text(stringResource(message.resource)) } }
         }
     }
@@ -363,6 +382,12 @@ fun Top(title: String, onBack: () -> Unit, action: (@Composable () -> Unit)? = n
 fun SettingsHeader(text: String) { Spacer(Modifier.height(24.dp)); Text(text, color = Pink, style = MaterialTheme.typography.labelLarge); Spacer(Modifier.height(9.dp)) }
 
 @Composable
+fun PrivacyToggle(label:Int,checked:Boolean,onChecked:(Boolean)->Unit)=PrivacyToggle(label,checked,null,onChecked)
+
+@Composable
+fun PrivacyToggle(label:Int,checked:Boolean,hint:Int?,onChecked:(Boolean)->Unit){SurfaceCard(Modifier.fillMaxWidth()){Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(stringResource(label));hint?.let{Text(stringResource(it),color=Muted,style=MaterialTheme.typography.bodyMedium)}};Switch(checked,onChecked)}}}
+
+@Composable
 fun localizedInterest(value: String): String {
     val resource = when (value.lowercase()) { "travel" -> R.string.interest_travel; "coffee" -> R.string.interest_coffee; "design" -> R.string.interest_design; "live music" -> R.string.interest_live_music; "hiking" -> R.string.interest_hiking; "cooking" -> R.string.interest_cooking; "photography" -> R.string.interest_photography; "books" -> R.string.interest_books; else -> null }
     return resource?.let { stringResource(it) } ?: value
@@ -416,7 +441,7 @@ fun PersonPhoto(person: Person, modifier: Modifier) {
 private fun avatarPerson(id: String, name: String, photoUrl: String?) = Person(id, name, 18, "", null, "", R.drawable.maya, photoUrl = photoUrl)
 
 @Composable
-private fun distanceText(distanceKm: Int?): String = when {
+fun distanceText(distanceKm: Int?): String = when {
     distanceKm == null -> stringResource(R.string.distance_nearby)
     distanceKm <= 1 -> stringResource(R.string.distance_under_two)
     else -> stringResource(R.string.distance_approx, distanceKm)
@@ -430,8 +455,8 @@ fun DiscoverConnected(person: Person, onDetail: () -> Unit, onSkip: () -> Unit, 
             Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) { BrandMark(38.dp); Spacer(Modifier.width(12.dp)); Text(stringResource(R.string.nav_discover), style = MaterialTheme.typography.titleLarge); Spacer(Modifier.weight(1f)); if (onRewind != null) IconButton(onRewind) { Icon(Icons.Default.Replay, stringResource(R.string.rewind_last)) } }
             Box(Modifier.weight(1f).fillMaxWidth().graphicsLayer { rotationZ = offset / 42; translationX = offset }.pointerInput(person.id) { detectDragGestures(onDragEnd = { when { offset > 180 -> onLike(); offset < -180 -> onSkip() }; offset = 0f }) { change, drag -> change.consume(); offset += drag.x } }.clip(RoundedCornerShape(30.dp)).clickable(onClick = onDetail)) {
                 PersonPhoto(person, Modifier.fillMaxSize()); Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color(0xEE09070D)))))
-                Row(Modifier.align(Alignment.TopStart).padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(9.dp).background(if (person.online) Color(0xFF55E6A5) else Muted, CircleShape)); Spacer(Modifier.width(7.dp)); Text(stringResource(if (person.online) R.string.online else R.string.recently_active), style = MaterialTheme.typography.labelLarge) }
-                Column(Modifier.align(Alignment.BottomStart).padding(22.dp)) { Row(verticalAlignment = Alignment.Bottom) { Text("${person.name}, ${person.age}", style = MaterialTheme.typography.headlineLarge); Spacer(Modifier.width(8.dp)); Icon(Icons.Default.Verified, stringResource(R.string.verified_profile), tint = Violet, modifier = Modifier.size(22.dp)) }; Text(stringResource(R.string.profile_place_distance, person.city, distanceText(person.distanceKm)), color = Color.White.copy(.8f)); if (person.interests.isNotEmpty()) { Spacer(Modifier.height(12.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { person.interests.take(3).forEach { interest -> AssistChip({}, { Text(localizedInterest(interest)) }, colors = AssistChipDefaults.assistChipColors(containerColor = Color(0x99211829)), border = null) } } } }
+                if(person.onlineStatus!="HIDDEN")Row(Modifier.align(Alignment.TopStart).padding(18.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(9.dp).background(if (person.online) Color(0xFF55E6A5) else Muted, CircleShape)); Spacer(Modifier.width(7.dp)); Text(stringResource(when(person.onlineStatus){"ONLINE"->R.string.online;"LAST_SEEN"->R.string.last_seen;"OFFLINE"->R.string.offline_status;else->R.string.recently_active}), style = MaterialTheme.typography.labelLarge) }
+                Column(Modifier.align(Alignment.BottomStart).padding(22.dp)) { Row(verticalAlignment = Alignment.Bottom) { Text("${person.name}, ${person.age}", style = MaterialTheme.typography.headlineLarge);if(person.verified){Spacer(Modifier.width(8.dp));Icon(Icons.Default.Verified, stringResource(R.string.verified_profile), tint = Violet, modifier = Modifier.size(22.dp))} };val place=listOfNotNull(person.city.takeIf(String::isNotBlank),person.distanceKm?.let{distanceText(it)}).joinToString("  •  ");if(place.isNotBlank())Text(place, color = Color.White.copy(.8f)); if (person.interests.isNotEmpty()) { Spacer(Modifier.height(12.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { person.interests.take(3).forEach { interest -> AssistChip({}, { Text(localizedInterest(interest)) }, colors = AssistChipDefaults.assistChipColors(containerColor = Color(0x99211829)), border = null) } } } }
             }
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { Action(Icons.Default.Close, Color(0xFF9B93A5), 54.dp, stringResource(R.string.pass), onSkip); Action(Icons.Default.Star, Violet, 62.dp, stringResource(R.string.super_like), onSuper); Action(Icons.Default.Favorite, Pink, 72.dp, stringResource(R.string.like), onLike) }
         }
@@ -460,48 +485,69 @@ fun ProfileDetailConnected(person: Person, onBack: () -> Unit, onLike: () -> Uni
 }
 
 @Composable
-fun MatchConnected(me: MyProfile?, person: DiscoverProfile?, onChat: () -> Unit, onContinue: () -> Unit) = Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF522146), Ink), radius = 1100f))) {
+fun MatchConnected(me: MyProfile?, person: DiscoverProfile?, onChat: () -> Unit, onContinue: () -> Unit,onProfile:()->Unit={}) = Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF522146), Ink), radius = 1100f))) {
     Column(Modifier.fillMaxSize().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text(stringResource(R.string.match_prefix), style = MaterialTheme.typography.displayLarge); Text(stringResource(R.string.match_word), color = Pink, style = MaterialTheme.typography.displayLarge); Text(stringResource(R.string.match_message, person?.name ?: stringResource(R.string.someone_special)), color = Muted, textAlign = TextAlign.Center); Spacer(Modifier.height(42.dp)); Box(Modifier.height(230.dp).fillMaxWidth()) { MatchPortrait(me?.photoUrl, stringResource(R.string.your_photo), Violet, Modifier.align(Alignment.CenterStart).offset(x = 32.dp).rotate(-8f)); MatchPortrait(person?.photoUrl, person?.name ?: stringResource(R.string.match_word), Pink, Modifier.align(Alignment.CenterEnd).offset(x = (-32).dp).rotate(8f)); BrandMark(58.dp) }; Spacer(Modifier.height(44.dp)); GlowButton(stringResource(R.string.send_message), onChat, Modifier.fillMaxWidth(), Icons.AutoMirrored.Filled.Chat); TextButton(onContinue) { Text(stringResource(R.string.keep_discovering), color = White) }
+        Text(stringResource(R.string.match_prefix), style = MaterialTheme.typography.displayLarge); Text(stringResource(R.string.match_word), color = Pink, style = MaterialTheme.typography.displayLarge); Text(stringResource(R.string.match_message, person?.name ?: stringResource(R.string.someone_special)), color = Muted, textAlign = TextAlign.Center); Spacer(Modifier.height(42.dp)); Box(Modifier.height(230.dp).fillMaxWidth()) { MatchPortrait(me?.photoUrl, stringResource(R.string.your_photo), Violet, Modifier.align(Alignment.CenterStart).offset(x = 32.dp).rotate(-8f)); MatchPortrait(person?.photoUrl, person?.name ?: stringResource(R.string.match_word), Pink, Modifier.align(Alignment.CenterEnd).offset(x = (-32).dp).rotate(8f).clickable(enabled=person!=null,onClick=onProfile)); BrandMark(58.dp) }; Spacer(Modifier.height(44.dp)); GlowButton(stringResource(R.string.send_message), onChat, Modifier.fillMaxWidth(), Icons.AutoMirrored.Filled.Chat); TextButton(onContinue) { Text(stringResource(R.string.keep_discovering), color = White) }
     }
 }
 
 @Composable
 private fun MatchPortrait(url: String?, description: String, border: Color, modifier: Modifier) { val shape = RoundedCornerShape(30.dp); val styled = modifier.size(190.dp).clip(shape).border(3.dp, border, shape); if (url != null) AsyncImage(url, description, styled, contentScale = ContentScale.Crop) else Box(styled.background(Brush.linearGradient(listOf(Color(0xFF392743), Color(0xFF17131E)))), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Person, description, tint = Muted, modifier = Modifier.size(72.dp)) } }
 
+private fun conversationTime(value:String)=runCatching{
+    val local=java.time.Instant.parse(value).atZone(java.time.ZoneId.systemDefault())
+    local.format(java.time.format.DateTimeFormatter.ofPattern(if(local.toLocalDate()==java.time.LocalDate.now())"HH:mm" else "dd.MM"))
+}.getOrElse{value.take(10)}
+
 @Composable
-fun MatchesConnected(matches: List<MatchSummary>, conversations: List<Conversation>, onChat: (String?) -> Unit) = AuroraBackground {
+fun MatchesConnected(matches: List<MatchSummary>, conversations: List<Conversation>, onChat: (String?) -> Unit,onProfile:(String)->Unit={},onLoadMore:()->Unit={}) = AuroraBackground {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Spacer(Modifier.height(6.dp)); Text(stringResource(R.string.nav_matches), style = MaterialTheme.typography.headlineLarge); Text(stringResource(R.string.connections_potential), color = Muted) }
         if (matches.isEmpty()) item { SurfaceCard(Modifier.fillMaxWidth()) { Text(stringResource(R.string.no_matches), fontWeight = FontWeight.Bold); Text(stringResource(R.string.mutual_like_hint), color = Muted) } }
-        else items(matches, key = { it.id }) { match -> SurfaceCard(Modifier.fillMaxWidth().clickable { onChat(conversations.firstOrNull { it.matchId == match.id }?.id) }) { Row(verticalAlignment = Alignment.CenterVertically) { PersonPhoto(avatarPerson(match.id, match.name, match.photoUrl), Modifier.size(64.dp).clip(CircleShape)); Spacer(Modifier.width(12.dp)); Text(match.name, fontWeight = FontWeight.Bold) } } }
+        else items(matches, key = { it.id }) { match ->
+            val conversation=conversations.firstOrNull{it.matchId==match.id||it.id==match.conversationId}
+            SurfaceCard(Modifier.fillMaxWidth().clickable { onChat(match.conversationId?:conversation?.id) }) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.clickable{onProfile(match.userId)}){PersonPhoto(avatarPerson(match.userId,match.name,match.photoUrl),Modifier.size(64.dp).clip(CircleShape));if(match.onlineStatus=="ONLINE")Box(Modifier.align(Alignment.BottomEnd).size(14.dp).background(Color(0xFF55E6A5),CircleShape).border(2.dp,Ink,CircleShape))}
+                    Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text(match.name,fontWeight=FontWeight.Bold);Text(conversation?.lastMessage?:stringResource(R.string.start_chat_hint),color=Muted,maxLines=1)}
+                    Column(horizontalAlignment=Alignment.End){conversation?.lastMessageAt?.let{Text(conversationTime(it),color=Muted,style=MaterialTheme.typography.labelSmall)};if((conversation?.unreadCount?:0)>0)Badge{Text(conversation!!.unreadCount.toString())}}
+                }
+            }
+        }
         if (conversations.isEmpty()) item { SurfaceCard(Modifier.fillMaxWidth()) { Text(stringResource(R.string.no_conversations), fontWeight = FontWeight.Bold); Text(stringResource(R.string.conversation_hint), color = Muted) } }
+        if(matches.isNotEmpty())item{LaunchedEffect(matches.size){onLoadMore()};Spacer(Modifier.height(1.dp))}
     }
 }
 
 @Composable
-fun ChatsConnected(conversations: List<Conversation>, onChat: (String?) -> Unit) = AuroraBackground {
+fun ChatsConnected(conversations: List<Conversation>, onChat: (String?) -> Unit,onProfile:(String)->Unit={},onLoadMore:()->Unit={}) = AuroraBackground {
     LazyColumn(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { Spacer(Modifier.height(6.dp)); Text(stringResource(R.string.nav_chats), style = MaterialTheme.typography.headlineLarge); Spacer(Modifier.height(12.dp)); DarkField("", {}, stringResource(R.string.search_conversations)) }
         if (conversations.isEmpty()) item { SurfaceCard(Modifier.fillMaxWidth()) { Text(stringResource(R.string.conversations_empty), fontWeight = FontWeight.Bold); Text(stringResource(R.string.chat_match_hint), color = Muted) } }
-        else items(conversations, key = { it.id }) { conversation -> SurfaceCard(Modifier.fillMaxWidth().clickable { onChat(conversation.id) }) { Row(verticalAlignment = Alignment.CenterVertically) { PersonPhoto(avatarPerson(conversation.id, conversation.name, conversation.photoUrl), Modifier.size(60.dp).clip(CircleShape)); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(conversation.name, fontWeight = FontWeight.Bold); Text(conversation.lastMessage.orEmpty(), color = Muted, maxLines = 1) }; if (conversation.unreadCount > 0) Badge { Text(conversation.unreadCount.toString()) } } } }
+        else items(conversations, key = { it.id }) { conversation -> SurfaceCard(Modifier.fillMaxWidth().clickable { onChat(conversation.id) }) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.clickable(enabled=conversation.otherUserId!=null){conversation.otherUserId?.let(onProfile)}){PersonPhoto(avatarPerson(conversation.otherUserId?:conversation.id, conversation.name, conversation.photoUrl), Modifier.size(60.dp).clip(CircleShape));if(conversation.onlineStatus=="ONLINE")Box(Modifier.align(Alignment.BottomEnd).size(13.dp).background(Color(0xFF55E6A5),CircleShape).border(2.dp,Ink,CircleShape))}; Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(conversation.name, fontWeight = FontWeight.Bold); Text(conversation.lastMessage.orEmpty(), color = Muted, maxLines = 1) };Column(horizontalAlignment=Alignment.End){conversation.lastMessageAt?.let{Text(it.take(10),color=Muted,style=MaterialTheme.typography.labelSmall)};if (conversation.unreadCount > 0) Badge { Text(conversation.unreadCount.toString()) }} } } }
+        if(conversations.isNotEmpty())item{LaunchedEffect(conversations.size){onLoadMore()};Spacer(Modifier.height(1.dp))}
     }
 }
 
 @Composable
-fun ChatConnected(messages: List<ChatMessage>, myId: String?, conversation: Conversation?, typing: Boolean, peerOnline: Boolean, onBack: () -> Unit, onSend: (String, String?) -> Unit, onPhoto: (ByteArray, String, String?) -> Unit, onTyping: (Boolean) -> Unit, onUnmatch: () -> Unit, onBlock: () -> Unit, onReport: () -> Unit) {
+fun ChatConnected(messages: List<ChatMessage>, myId: String?, conversation: Conversation?, typing: Boolean, peerOnline: Boolean, onBack: () -> Unit, onSend: (String, String?) -> Unit, onPhoto: (ByteArray, String, String?) -> Unit, onTyping: (Boolean) -> Unit, onUnmatch: () -> Unit, onBlock: () -> Unit, onReport: () -> Unit,onProfile:()->Unit={},onLoadOlder:()->Unit={}) {
     var text by remember { mutableStateOf("") }; var menu by remember { mutableStateOf(false) }; var confirmation by remember { mutableStateOf<String?>(null) }; var reply by remember { mutableStateOf<ChatMessage?>(null) }; val context = LocalContext.current; val scope = rememberCoroutineScope(); val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) scope.launch(Dispatchers.IO) { val mime = context.contentResolver.getType(uri) ?: "image/jpeg"; context.contentResolver.openInputStream(uri)?.use { onPhoto(it.readBytes(), mime, reply?.id) }; reply = null } }
     AuroraBackground { Column(Modifier.fillMaxSize()) {
-        Top(conversation?.name ?: stringResource(R.string.chat), onBack) { Row(verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(8.dp).background(if (peerOnline) Color(0xFF55E6A5) else Muted, CircleShape)); Spacer(Modifier.width(6.dp)); Text(stringResource(if (typing) R.string.typing else if (peerOnline) R.string.online_lower else R.string.recently_active_lower), color = Muted); Box { IconButton({ menu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.conversation_actions)) }; DropdownMenu(menu, { menu = false }) { DropdownMenuItem({ Text(stringResource(R.string.report)) }, { menu = false; onReport() }, leadingIcon = { Icon(Icons.Outlined.Flag, null) }); DropdownMenuItem({ Text(stringResource(R.string.unmatch)) }, { menu = false; confirmation = "unmatch" }, leadingIcon = { Icon(Icons.Outlined.HeartBroken, null) }); DropdownMenuItem({ Text(stringResource(R.string.block)) }, { menu = false; confirmation = "block" }, leadingIcon = { Icon(Icons.Outlined.Block, null) }) } } } }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { if (messages.isEmpty()) item { Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Outlined.WavingHand, null, tint = Violet, modifier = Modifier.size(38.dp)); Spacer(Modifier.height(12.dp)); Text(stringResource(R.string.start_from_profile), color = Muted, textAlign = TextAlign.Center) } }; items(messages, key = { it.id }) { message -> MessageBubble(message, message.senderId == myId, messages.firstOrNull { it.id == message.replyToId }) { reply = message } } }
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal=10.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically){
+            IconButton(onBack){Icon(Icons.AutoMirrored.Filled.ArrowBack,stringResource(R.string.back))}
+            Box(Modifier.clickable(onClick=onProfile)){PersonPhoto(avatarPerson(conversation?.otherUserId?:conversation?.id.orEmpty(),conversation?.name?:stringResource(R.string.chat),conversation?.photoUrl),Modifier.size(42.dp).clip(CircleShape));if(peerOnline)Box(Modifier.align(Alignment.BottomEnd).size(11.dp).background(Color(0xFF55E6A5),CircleShape).border(2.dp,Ink,CircleShape))}
+            Spacer(Modifier.width(10.dp));Column(Modifier.weight(1f).clickable(onClick=onProfile)){Text(conversation?.name?:stringResource(R.string.chat),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold);Text(stringResource(when{typing->R.string.typing;peerOnline->R.string.online_lower;conversation?.onlineStatus=="RECENTLY_ONLINE"->R.string.recently_active_lower;conversation?.onlineStatus=="LAST_SEEN"->R.string.last_seen;conversation?.onlineStatus=="HIDDEN"->R.string.status_hidden;else->R.string.offline_status}),color=Muted,style=MaterialTheme.typography.bodySmall)}
+            Box{IconButton({menu=true}){Icon(Icons.Default.MoreVert,stringResource(R.string.conversation_actions))};DropdownMenu(menu,{menu=false}){DropdownMenuItem({Text(stringResource(R.string.view_profile))},{menu=false;onProfile()},leadingIcon={Icon(Icons.Outlined.Person,null)});DropdownMenuItem({Text(stringResource(R.string.report))},{menu=false;onReport()},leadingIcon={Icon(Icons.Outlined.Flag,null)});DropdownMenuItem({Text(stringResource(R.string.unmatch))},{menu=false;confirmation="unmatch"},leadingIcon={Icon(Icons.Outlined.HeartBroken,null)});DropdownMenuItem({Text(stringResource(R.string.block))},{menu=false;confirmation="block"},leadingIcon={Icon(Icons.Outlined.Block,null)})}}
+        }
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { if(messages.isNotEmpty())item{TextButton(onLoadOlder,Modifier.fillMaxWidth()){Text(stringResource(R.string.load_earlier),color=Muted)}};if (messages.isEmpty()) item { Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Outlined.WavingHand, null, tint = Violet, modifier = Modifier.size(38.dp)); Spacer(Modifier.height(12.dp)); Text(stringResource(R.string.start_from_profile), color = Muted, textAlign = TextAlign.Center) } }; items(messages, key = { it.id }) { message -> MessageBubble(message, message.senderId == myId, messages.firstOrNull { it.id == message.replyToId }) { reply = message } } }
         reply?.let { replying -> Row(Modifier.fillMaxWidth().background(Glass).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.AutoMirrored.Filled.Reply, null, tint = Violet); Spacer(Modifier.width(8.dp)); Column(Modifier.weight(1f)) { Text(stringResource(R.string.replying), color = Violet, style = MaterialTheme.typography.labelLarge); Text(replying.body ?: stringResource(R.string.photo), maxLines = 1) }; IconButton({ reply = null }) { Icon(Icons.Default.Close, stringResource(R.string.cancel_reply)) } } }
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) { IconButton({ picker.launch("image/*") }) { Icon(Icons.Outlined.AddPhotoAlternate, stringResource(R.string.attach_photo), tint = Muted) }; IconButton({ text += "😊"; onTyping(true) }) { Icon(Icons.Outlined.EmojiEmotions, stringResource(R.string.add_emoji), tint = Muted) }; OutlinedTextField(text, { text = it; onTyping(it.isNotBlank()) }, Modifier.weight(1f), placeholder = { Text(stringResource(R.string.message_hint)) }, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Glass, focusedContainerColor = Glass, unfocusedBorderColor = Color.Transparent, focusedBorderColor = Pink)); IconButton({ val value = text; if (value.isNotBlank()) { text = ""; onTyping(false); onSend(value, reply?.id); reply = null } }, Modifier.padding(start = 8.dp).background(Pink, CircleShape)) { Icon(Icons.Default.ArrowUpward, stringResource(R.string.send)) } }
+        Row(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(12.dp), verticalAlignment = Alignment.CenterVertically) { IconButton({ picker.launch("image/*") }) { Icon(Icons.Outlined.AddPhotoAlternate, stringResource(R.string.attach_photo), tint = Muted) }; IconButton({ text += "😊"; onTyping(true) }) { Icon(Icons.Outlined.EmojiEmotions, stringResource(R.string.add_emoji), tint = Muted) }; OutlinedTextField(text, { text = it; onTyping(it.isNotBlank()) }, Modifier.weight(1f), placeholder = { Text(stringResource(R.string.message_hint)) }, shape = RoundedCornerShape(24.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = Glass, focusedContainerColor = Glass, unfocusedBorderColor = Color.Transparent, focusedBorderColor = Pink)); IconButton({ val value = text; if (value.isNotBlank()) { text = ""; onTyping(false); onSend(value, reply?.id); reply = null } }, Modifier.padding(start = 8.dp).background(Pink, CircleShape)) { Icon(Icons.Default.ArrowUpward, stringResource(R.string.send)) } }
     }; confirmation?.let { action -> AlertDialog({ confirmation = null }, title = { Text(stringResource(if (action == "block") R.string.block_chat_title else R.string.unmatch_title)) }, text = { Text(stringResource(if (action == "block") R.string.block_chat_body else R.string.unmatch_body)) }, confirmButton = { TextButton({ confirmation = null; if (action == "block") onBlock() else onUnmatch() }) { Text(stringResource(if (action == "block") R.string.block else R.string.unmatch), color = Pink) } }, dismissButton = { TextButton({ confirmation = null }) { Text(stringResource(R.string.cancel)) } }) } }
 }
 
 @Composable
 fun MessageBubble(message: ChatMessage, mine: Boolean, replied: ChatMessage?, onReply: () -> Unit) = Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
-    Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start) { SurfaceCard(Modifier.widthIn(max = 290.dp), padding = 13.dp) { if (replied != null) { Text(replied.body ?: stringResource(R.string.photo), color = Violet, style = MaterialTheme.typography.bodySmall, maxLines = 2); Spacer(Modifier.height(7.dp)) }; if (message.mediaUrl != null) AsyncImage(message.mediaUrl, stringResource(R.string.shared_photo), Modifier.fillMaxWidth().heightIn(max = 280.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop); message.body?.let { if (message.mediaUrl != null) Spacer(Modifier.height(8.dp)); Text(it) } }; Row(verticalAlignment = Alignment.CenterVertically) { TextButton(onReply, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) { Icon(Icons.AutoMirrored.Filled.Reply, null, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(stringResource(R.string.reply), style = MaterialTheme.typography.labelSmall) }; if (mine && message.readAt != null) Text(stringResource(R.string.read), color = Muted, style = MaterialTheme.typography.labelSmall) } }
+    Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start) { SurfaceCard(Modifier.widthIn(max = 290.dp), padding = 13.dp) { if (replied != null) { Text(replied.body ?: stringResource(R.string.photo), color = Violet, style = MaterialTheme.typography.bodySmall, maxLines = 2); Spacer(Modifier.height(7.dp)) }; if (message.mediaUrl != null) AsyncImage(message.mediaUrl, stringResource(R.string.shared_photo), Modifier.fillMaxWidth().heightIn(max = 280.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop); message.body?.let { if (message.mediaUrl != null) Spacer(Modifier.height(8.dp)); Text(it) } }; Row(verticalAlignment = Alignment.CenterVertically) { TextButton(onReply, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) { Icon(Icons.AutoMirrored.Filled.Reply, null, modifier = Modifier.size(14.dp)); Spacer(Modifier.width(3.dp)); Text(stringResource(R.string.reply), style = MaterialTheme.typography.labelSmall) }; if (mine && message.readAt != null) Text(stringResource(R.string.read), color = Muted, style = MaterialTheme.typography.labelSmall) else if(mine&&message.deliveredAt!=null)Text(stringResource(R.string.delivered),color=Muted,style=MaterialTheme.typography.labelSmall) } }
 }
 
 @Composable
@@ -515,13 +561,15 @@ fun MyProfileConnected(
     onDeletePhoto: (String) -> Unit,
     location: ProfileLocation? = null,
     socialProfiles: List<SocialProfile> = emptyList(),
+    onMakeMain:(String)->Unit={},
+    onReorder:(List<String>)->Unit={},
 ) {
-    var edit by remember { mutableStateOf(false) }; var pendingPosition by remember { mutableIntStateOf(0) }; val context = LocalContext.current; val scope = rememberCoroutineScope()
+    var edit by remember { mutableStateOf(false) }; var pendingPosition by remember { mutableIntStateOf(0) };var photoMenuId by remember{mutableStateOf<String?>(null)}; val context = LocalContext.current; val scope = rememberCoroutineScope()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri -> if (uri != null) { val mime = context.contentResolver.getType(uri) ?: "image/jpeg"; val position = pendingPosition; scope.launch(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.use { onPhoto(position, it.readBytes(), mime) } } } }
     AuroraBackground { LazyColumn(Modifier.fillMaxSize().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.my_profile), style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f)); IconButton(onSettings) { Icon(Icons.Outlined.Settings, stringResource(R.string.settings)) } } }
         item { val primary = photos.firstOrNull { it.position == 0 }?.url ?: me?.photoUrl; Box(Modifier.clickable { pendingPosition = 0; picker.launch("image/*") }) { val avatar = Modifier.size(144.dp).clip(CircleShape).border(3.dp, Brush.linearGradient(listOf(Pink, Violet)), CircleShape); if (primary != null) AsyncImage(primary, stringResource(R.string.your_profile_photo), avatar, contentScale = ContentScale.Crop) else Box(avatar.background(Brush.linearGradient(listOf(Color(0xFF32233E), Color(0xFF17131E)))), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Person, stringResource(R.string.add_profile_photo), tint = Muted, modifier = Modifier.size(64.dp)) }; Box(Modifier.align(Alignment.BottomEnd).size(38.dp).background(Pink, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.Edit, stringResource(R.string.edit), modifier = Modifier.size(20.dp)) } }; Text(me?.name ?: stringResource(R.string.your_profile), style = MaterialTheme.typography.headlineMedium); Text(location?.city ?: me?.city ?: stringResource(R.string.add_city), color = Muted) }
-        item { Column(Modifier.fillMaxWidth()) { Text(stringResource(R.string.photos), color = Pink, style = MaterialTheme.typography.labelLarge); Spacer(Modifier.height(8.dp)); androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) { items(6) { position -> val photo = photos.firstOrNull { it.position == position }; Box(Modifier.size(104.dp, 138.dp).clip(RoundedCornerShape(18.dp)).background(Glass).border(1.dp, Color(0x334F405E), RoundedCornerShape(18.dp)).clickable { pendingPosition = position; picker.launch("image/*") }, contentAlignment = Alignment.Center) { if (photo != null) { AsyncImage(photo.url, stringResource(R.string.profile_photo_number, position + 1), Modifier.fillMaxSize(), contentScale = ContentScale.Crop); IconButton({ onDeletePhoto(photo.id) }, Modifier.align(Alignment.TopEnd).padding(4.dp).size(30.dp).background(Color(0xAA0A0710), CircleShape)) { Icon(Icons.Default.Close, stringResource(R.string.delete_photo), modifier = Modifier.size(16.dp)) } } else Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.AddPhotoAlternate, null, tint = Muted); Text(stringResource(R.string.add), color = Muted, style = MaterialTheme.typography.labelSmall) } } } } } }
+        item { Column(Modifier.fillMaxWidth()) { Text(stringResource(R.string.photos), color = Pink, style = MaterialTheme.typography.labelLarge); Spacer(Modifier.height(8.dp)); androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) { items(BuildConfig.PROFILE_PHOTO_LIMIT) { position -> val photo = photos.firstOrNull { it.position == position }; val enabled=photo!=null||position==photos.size; Box(Modifier.size(104.dp, 138.dp).clip(RoundedCornerShape(18.dp)).background(Glass).border(1.dp, Color(0x334F405E), RoundedCornerShape(18.dp)).clickable(enabled=enabled) { pendingPosition = position; picker.launch("image/*") }, contentAlignment = Alignment.Center) { if (photo != null) { AsyncImage(photo.thumbnailUrl, stringResource(R.string.profile_photo_number, position + 1), Modifier.fillMaxSize(), contentScale = ContentScale.Crop);if(position==0)Icon(Icons.Default.Star,stringResource(R.string.main_photo),tint=Pink,modifier=Modifier.align(Alignment.TopStart).padding(7.dp).size(18.dp));Box(Modifier.align(Alignment.TopEnd)){IconButton({photoMenuId=photo.id},Modifier.padding(4.dp).size(30.dp).background(Color(0xBB0A0710),CircleShape)){Icon(Icons.Default.MoreVert,stringResource(R.string.photo_actions),modifier=Modifier.size(16.dp))};DropdownMenu(photoMenuId==photo.id,{photoMenuId=null}){if(position!=0)DropdownMenuItem({Text(stringResource(R.string.set_main_photo))},{photoMenuId=null;onMakeMain(photo.id)},leadingIcon={Icon(Icons.Default.Star,null)});if(position>0)DropdownMenuItem({Text(stringResource(R.string.move_left))},{photoMenuId=null;val ids=photos.sortedBy{it.position}.map{it.id}.toMutableList();java.util.Collections.swap(ids,position,position-1);onReorder(ids)},leadingIcon={Icon(Icons.AutoMirrored.Filled.ArrowBack,null)});if(position<photos.size-1)DropdownMenuItem({Text(stringResource(R.string.move_right))},{photoMenuId=null;val ids=photos.sortedBy{it.position}.map{it.id}.toMutableList();java.util.Collections.swap(ids,position,position+1);onReorder(ids)},leadingIcon={Icon(Icons.Default.ArrowForward,null)});DropdownMenuItem({Text(stringResource(R.string.delete_photo))},{photoMenuId=null;onDeletePhoto(photo.id)},leadingIcon={Icon(Icons.Default.Delete,null)})}} } else Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.AddPhotoAlternate, null, tint = if(enabled)Muted else Muted.copy(.25f)); Text(stringResource(R.string.add), color = if(enabled)Muted else Muted.copy(.25f), style = MaterialTheme.typography.labelSmall) } } } } } }
         item { SurfaceCard(Modifier.fillMaxWidth().clickable(onClick = onPremium)) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.AutoAwesome, null, tint = Pink); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(stringResource(R.string.premium_name, stringResource(R.string.app_name)), fontWeight = FontWeight.Bold); Text(stringResource(R.string.see_likes_rewind), color = Muted) }; Icon(Icons.Default.ChevronRight, null) } } }
         socialProfiles.firstOrNull { it.provider == "instagram" && it.visibleInProfile }?.let { instagram -> item { SurfaceCard(Modifier.fillMaxWidth()) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.AlternateEmail, null, tint = Pink); Spacer(Modifier.width(10.dp)); Text("@${instagram.username}", fontWeight = FontWeight.SemiBold) } } } }
         item { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.your_story), style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f)); TextButton({ edit = true }) { Text(stringResource(R.string.edit)) } } }
@@ -555,7 +603,6 @@ fun SettingsConnected(
     blocked: List<BlockedUser>,
     onBack: () -> Unit,
     onSave: (SearchPreferences) -> Unit,
-    onHidden: (Boolean) -> Unit,
     onUnblock: (String) -> Unit,
     onLogout: () -> Unit,
     onDelete: () -> Unit,
@@ -575,8 +622,10 @@ fun SettingsConnected(
     onUnlink: (String) -> Unit = {},
     onSaveInstagram: (String, Boolean) -> Unit = { _, _ -> },
     onRemoveInstagram: () -> Unit = {},
+    privacy: PrivacySettings = PrivacySettings(pushNotifications=initial.notifications,hideProfileTemporarily=initialHidden),
+    onPrivacy: (PrivacySettings) -> Unit = {},
 ) {
-    var minAge by remember(initial) { mutableFloatStateOf(initial.minAge.toFloat()) }; var maxAge by remember(initial) { mutableFloatStateOf(initial.maxAge.toFloat()) }; var distance by remember(initial) { mutableFloatStateOf(initial.maxDistanceKm.toFloat()) }; var notifications by remember(initial) { mutableStateOf(initial.notifications) }; var showGenders by remember(initial) { mutableStateOf(initial.showGenders.toSet()) }; var hidden by remember(initialHidden) { mutableStateOf(initialHidden) }; var deleteDialog by remember { mutableStateOf(false) }; var manualDialog by remember { mutableStateOf(false) }; var instagramDialog by remember { mutableStateOf(false) }; var unlinkProvider by remember { mutableStateOf<String?>(null) }
+    var minAge by remember(initial) { mutableFloatStateOf(initial.minAge.toFloat()) }; var maxAge by remember(initial) { mutableFloatStateOf(initial.maxAge.toFloat()) }; var distance by remember(initial) { mutableFloatStateOf(initial.maxDistanceKm.toFloat()) }; var notifications by remember(privacy) { mutableStateOf(privacy.pushNotifications) }; var showGenders by remember(initial) { mutableStateOf(initial.showGenders.toSet()) }; var privacyState by remember(privacy) { mutableStateOf(privacy) }; var deleteDialog by remember { mutableStateOf(false) }; var manualDialog by remember { mutableStateOf(false) }; var instagramDialog by remember { mutableStateOf(false) }; var unlinkProvider by remember { mutableStateOf<String?>(null) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants -> if (grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true || grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) onDeviceLocation() else manualDialog = true }
     val genders = listOf("woman" to R.string.show_women, "man" to R.string.show_men, "non_binary" to R.string.gender_non_binary, "other" to R.string.show_other)
     val instagram = socialProfiles.firstOrNull { it.provider == "instagram" }
@@ -599,8 +648,13 @@ fun SettingsConnected(
         item { SurfaceCard(Modifier.fillMaxWidth()) { Text(stringResource(R.string.show_me), fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(10.dp)); FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { genders.forEach { (value, label) -> FilterChip(value in showGenders, { showGenders = if (value in showGenders && showGenders.size > 1) showGenders - value else showGenders + value }, { Text(stringResource(label)) }) } } } }
         item { GlowButton(stringResource(R.string.save_discovery), { onSave(SearchPreferences(minAge.toInt(), maxAge.toInt(), distance.toInt(), showGenders.toList(), notifications)) }, Modifier.fillMaxWidth()) }
         item { SettingsHeader(stringResource(R.string.privacy_safety)) }
-        item { SurfaceCard(Modifier.fillMaxWidth()) { Row(verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.notifications), Modifier.weight(1f)); Switch(notifications, { notifications = it }) } } }
-        item { SurfaceCard(Modifier.fillMaxWidth()) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(stringResource(R.string.hide_profile)); Text(stringResource(R.string.hide_profile_hint), color = Muted, style = MaterialTheme.typography.bodyMedium) }; Switch(hidden, { hidden = it; onHidden(it) }) } } }
+        item { PrivacyToggle(R.string.show_online_status,privacyState.showOnlineStatus){value->privacyState=privacyState.copy(showOnlineStatus=value);onPrivacy(privacyState)} }
+        item { PrivacyToggle(R.string.show_distance,privacyState.showDistance){value->privacyState=privacyState.copy(showDistance=value);onPrivacy(privacyState)} }
+        item { PrivacyToggle(R.string.show_city,privacyState.showCity){value->privacyState=privacyState.copy(showCity=value);onPrivacy(privacyState)} }
+        item { PrivacyToggle(R.string.discoverable_profile,privacyState.discoverableProfile){value->privacyState=privacyState.copy(discoverableProfile=value);onPrivacy(privacyState)} }
+        item { PrivacyToggle(R.string.read_receipts,privacyState.readReceipts){value->privacyState=privacyState.copy(readReceipts=value);onPrivacy(privacyState)} }
+        item { PrivacyToggle(R.string.notifications,privacyState.pushNotifications){value->notifications=value;privacyState=privacyState.copy(pushNotifications=value);onPrivacy(privacyState)} }
+        item { PrivacyToggle(R.string.hide_profile,privacyState.hideProfileTemporarily,R.string.hide_profile_hint){value->privacyState=privacyState.copy(hideProfileTemporarily=value);onPrivacy(privacyState)} }
         if (blocked.isNotEmpty()) { item { Text(stringResource(R.string.blocked_profiles), style = MaterialTheme.typography.titleMedium) }; items(blocked, key = { it.id }) { person -> SurfaceCard(Modifier.fillMaxWidth()) { Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(person.name ?: stringResource(R.string.blocked_member), fontWeight = FontWeight.SemiBold); Text(stringResource(R.string.blocked_hint), color = Muted, style = MaterialTheme.typography.bodySmall) }; TextButton({ onUnblock(person.id) }) { Text(stringResource(R.string.unblock), color = Pink) } } } } }
         item { SettingsHeader(stringResource(R.string.account)) }
         item { TextButton(onLogout, Modifier.fillMaxWidth()) { Text(stringResource(R.string.sign_out), color = Pink) } }
@@ -620,12 +674,14 @@ private fun ManualLocationDialog(onDismiss: () -> Unit, onSave: (String?, String
 private fun InstagramDialog(current: SocialProfile?, onDismiss: () -> Unit, onSave: (String, Boolean) -> Unit) { var username by remember { mutableStateOf(current?.username.orEmpty()) }; var visible by remember { mutableStateOf(current?.visibleInProfile ?: true) }; AlertDialog(onDismiss, title = { Text(stringResource(if (current == null) R.string.instagram_add else R.string.instagram_edit)) }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { DarkField(username, { username = it }, stringResource(R.string.instagram_handle)); Row(verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.instagram_visible), Modifier.weight(1f)); Switch(visible, { visible = it }) }; Text(stringResource(R.string.instagram_no_password), color = Muted, style = MaterialTheme.typography.bodySmall) } }, confirmButton = { TextButton({ if (username.isNotBlank()) onSave(username, visible) }) { Text(stringResource(R.string.save), color = if (username.isNotBlank()) Pink else Muted) } }, dismissButton = { TextButton(onDismiss) { Text(stringResource(R.string.cancel)) } }) }
 
 @Composable
-fun PremiumConnected(subscription: Subscription, likes: ReceivedLikes, onBack: () -> Unit, onActivate: () -> Unit, onBoost: () -> Unit) = Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF261530), Ink)))) {
+fun PremiumConnected(subscription: Subscription, likes: ReceivedLikes, onBack: () -> Unit, onActivate: () -> Unit, onBoost: () -> Unit,onProfile:(String)->Unit={},onLoadMore:()->Unit={}) = Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF261530), Ink)))) {
     val benefits = listOf(Triple(Icons.Default.Replay, R.string.rewind, R.string.rewind_detail), Triple(Icons.Default.Bolt, R.string.boost, R.string.boost_detail), Triple(Icons.Default.Star, R.string.more_super_likes, R.string.super_likes_detail))
     LazyColumn(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(Modifier.fillMaxWidth()) { IconButton(onBack) { Icon(Icons.Default.Close, stringResource(R.string.close)) } }; BrandMark(68.dp); Spacer(Modifier.height(12.dp)); Text(if (subscription.premium) stringResource(R.string.premium_name, stringResource(R.string.app_name).uppercase()) else stringResource(R.string.app_name).uppercase(), color = Pink, style = MaterialTheme.typography.headlineLarge); Text(stringResource(if (subscription.premium) R.string.premium_active else R.string.premium_pitch), color = Muted, textAlign = TextAlign.Center) }
         item { SurfaceCard(Modifier.fillMaxWidth()) { Text(stringResource(R.string.today), color = Pink, style = MaterialTheme.typography.labelLarge); Spacer(Modifier.height(8.dp)); Text(stringResource(R.string.actions_usage, subscription.actionsUsed, subscription.actionLimit)); Spacer(Modifier.height(8.dp)); LinearProgressIndicator(progress = { if (subscription.actionLimit == 0) 0f else subscription.actionsUsed.toFloat() / subscription.actionLimit }, Modifier.fillMaxWidth().height(6.dp).clip(CircleShape), color = Pink, trackColor = Color(0xFF30263A)); Spacer(Modifier.height(12.dp)); Text(stringResource(R.string.super_likes_usage, subscription.superLikesUsed, subscription.superLikeLimit), color = Muted) } }
         item { SurfaceCard(Modifier.fillMaxWidth()) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Favorite, null, tint = Pink); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(stringResource(R.string.people_like_you), fontWeight = FontWeight.Bold); Text(stringResource(if (likes.locked) R.string.likes_waiting else R.string.likes_interested, likes.count), color = Muted) } } } }
+        if(!likes.locked)items(likes.people,key={it.id}){person->SurfaceCard(Modifier.fillMaxWidth().clickable{onProfile(person.id)},padding=12.dp){Row(verticalAlignment=Alignment.CenterVertically){PersonPhoto(avatarPerson(person.id,person.name,person.photoUrl),Modifier.size(52.dp).clip(CircleShape));Spacer(Modifier.width(12.dp));Column(Modifier.weight(1f)){Text(person.name,fontWeight=FontWeight.Bold);Text(stringResource(if(person.kind=="super_like")R.string.super_like else R.string.like),color=if(person.kind=="super_like")Violet else Pink)};Icon(Icons.Default.ChevronRight,null,tint=Muted)}}}
+        if(!likes.locked&&likes.nextCursor!=null)item{LaunchedEffect(likes.nextCursor){onLoadMore()};CircularProgressIndicator(color=Pink,modifier=Modifier.size(28.dp))}
         items(benefits) { (icon, title, subtitle) -> Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) { Box(Modifier.size(46.dp).background(Color(0x332E1656), RoundedCornerShape(15.dp)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Pink) }; Spacer(Modifier.width(12.dp)); Column { Text(stringResource(title), fontWeight = FontWeight.Bold); Text(stringResource(subtitle), color = Muted) } } }
         if (subscription.premium) item { GlowButton(stringResource(R.string.activate_boost), onBoost, Modifier.fillMaxWidth(), Icons.Default.Bolt); subscription.validUntil?.let { Text(stringResource(R.string.premium_through, it.take(10)), color = Muted) } } else item { SurfaceCard(Modifier.fillMaxWidth()) { Text(stringResource(R.string.development_plan), color = Pink, fontWeight = FontWeight.Bold); Text(stringResource(R.string.development_plan_detail), color = Muted); Spacer(Modifier.height(14.dp)); GlowButton(stringResource(R.string.activate_premium), onActivate, Modifier.fillMaxWidth()) } }
         item { Spacer(Modifier.height(20.dp)) }

@@ -26,8 +26,37 @@ export class ProviderVerificationService {
 @Injectable()
 export class IdentityService {
   constructor(private db:Db,private auth:AuthService){}
-  async login(identity:ProviderIdentity){const existing=await this.db.query('SELECT ai.user_id,u.email FROM auth_identities ai JOIN users u ON u.id=ai.user_id AND u.active=true WHERE ai.provider=$1 AND ai.provider_subject=$2',[identity.provider,identity.subject]);let userId:string;let email:string|undefined;if(existing.rowCount){userId=existing.rows[0].user_id;email=existing.rows[0].email??identity.email;await this.db.query('UPDATE auth_identities SET last_used_at=now(),email=COALESCE($3,email),phone=COALESCE($4,phone),email_verified=email_verified OR $5,phone_verified=phone_verified OR $6 WHERE provider=$1 AND provider_subject=$2',[identity.provider,identity.subject,identity.email??null,identity.phone??null,Boolean(identity.emailVerified),Boolean(identity.phoneVerified)])}else{const client=await this.db.pool.connect();try{await client.query('BEGIN');const candidateEmail=identity.email?normalizeEmail(identity.email):null;const availableEmail=candidateEmail&&!(await client.query('SELECT 1 FROM users WHERE email=$1',[candidateEmail])).rowCount?candidateEmail:null;const user=(await client.query('INSERT INTO users(email,password_hash,email_verified) VALUES($1,NULL,$2) RETURNING id,email',[availableEmail,Boolean(identity.emailVerified)])).rows[0];userId=user.id;email=user.email??identity.email;await client.query('INSERT INTO subscriptions(user_id) VALUES($1)',[userId]);await client.query('INSERT INTO preferences(user_id) VALUES($1)',[userId]);await client.query('INSERT INTO auth_identities(user_id,provider,provider_subject,email,phone,email_verified,phone_verified) VALUES($1,$2,$3,$4,$5,$6,$7)',[userId,identity.provider,identity.subject,identity.email??null,identity.phone??null,Boolean(identity.emailVerified),Boolean(identity.phoneVerified)]);await client.query('COMMIT')}catch(error:any){await client.query('ROLLBACK');if(error?.code==='23505'){const raced=await this.db.query('SELECT user_id FROM auth_identities WHERE provider=$1 AND provider_subject=$2',[identity.provider,identity.subject]);if(raced.rowCount){userId=raced.rows[0].user_id}else throw new HttpException('Identity conflict',409)}else throw error}finally{client.release()}}
-    return this.auth.pair({sub:userId!,email})
+  async login(identity:ProviderIdentity){
+    const existing=await this.db.query('SELECT ai.user_id,u.email,u.active,u.deleted_at,u.suspended_at FROM auth_identities ai JOIN users u ON u.id=ai.user_id WHERE ai.provider=$1 AND ai.provider_subject=$2',[identity.provider,identity.subject]);
+    let userId:string;let email:string|undefined;
+    if(existing.rowCount){
+      const owner=existing.rows[0];
+      if(!owner.active||owner.deleted_at||owner.suspended_at)throw new HttpException({code:'ACCOUNT_UNAVAILABLE',message:'This account is unavailable'},403);
+      userId=owner.user_id;email=owner.email??identity.email;
+      await this.db.query('UPDATE auth_identities SET last_used_at=now(),email=COALESCE($3,email),phone=COALESCE($4,phone),email_verified=email_verified OR $5,phone_verified=phone_verified OR $6 WHERE provider=$1 AND provider_subject=$2',[identity.provider,identity.subject,identity.email??null,identity.phone??null,Boolean(identity.emailVerified),Boolean(identity.phoneVerified)]);
+    }else{
+      const client=await this.db.pool.connect();
+      try{
+        await client.query('BEGIN');
+        const candidateEmail=identity.email?normalizeEmail(identity.email):null;
+        const availableEmail=candidateEmail&&!(await client.query('SELECT 1 FROM users WHERE email=$1',[candidateEmail])).rowCount?candidateEmail:null;
+        const user=(await client.query('INSERT INTO users(email,password_hash,email_verified) VALUES($1,NULL,$2) RETURNING id,email',[availableEmail,Boolean(identity.emailVerified)])).rows[0];
+        userId=user.id;email=user.email??identity.email;
+        await client.query('INSERT INTO subscriptions(user_id) VALUES($1)',[userId]);
+        await client.query('INSERT INTO preferences(user_id) VALUES($1)',[userId]);
+        await client.query('INSERT INTO auth_identities(user_id,provider,provider_subject,email,phone,email_verified,phone_verified) VALUES($1,$2,$3,$4,$5,$6,$7)',[userId,identity.provider,identity.subject,identity.email??null,identity.phone??null,Boolean(identity.emailVerified),Boolean(identity.phoneVerified)]);
+        await client.query('COMMIT');
+      }catch(error:any){
+        await client.query('ROLLBACK');
+        if(error?.code==='23505'){
+          const raced=await this.db.query('SELECT ai.user_id,u.active,u.deleted_at,u.suspended_at FROM auth_identities ai JOIN users u ON u.id=ai.user_id WHERE ai.provider=$1 AND ai.provider_subject=$2',[identity.provider,identity.subject]);
+          if(raced.rowCount&&raced.rows[0].active&&!raced.rows[0].deleted_at&&!raced.rows[0].suspended_at)userId=raced.rows[0].user_id;
+          else if(raced.rowCount)throw new HttpException({code:'ACCOUNT_UNAVAILABLE',message:'This account is unavailable'},403);
+          else throw new HttpException('Identity conflict',409);
+        }else throw error;
+      }finally{client.release()}
+    }
+    return this.auth.pair({sub:userId!,email});
   }
   async link(userId:string,identity:ProviderIdentity){const owner=await this.db.query('SELECT user_id FROM auth_identities WHERE provider=$1 AND provider_subject=$2',[identity.provider,identity.subject]);if(owner.rowCount&&owner.rows[0].user_id!==userId)throw new HttpException({message:'This provider account belongs to another Velora account',code:'IDENTITY_CONFLICT'},409);const provider=await this.db.query('SELECT provider_subject FROM auth_identities WHERE user_id=$1 AND provider=$2',[userId,identity.provider]);if(provider.rowCount&&provider.rows[0].provider_subject!==identity.subject)throw new HttpException({message:'A different account from this provider is already linked',code:'PROVIDER_ALREADY_LINKED'},409);await this.db.query(`INSERT INTO auth_identities(user_id,provider,provider_subject,email,phone,email_verified,phone_verified) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(provider,provider_subject) DO UPDATE SET last_used_at=now(),email=COALESCE($4,auth_identities.email),phone=COALESCE($5,auth_identities.phone),email_verified=auth_identities.email_verified OR $6,phone_verified=auth_identities.phone_verified OR $7`,[userId,identity.provider,identity.subject,identity.email??null,identity.phone??null,Boolean(identity.emailVerified),Boolean(identity.phoneVerified)]);return this.list(userId)}
   async list(userId:string){return(await this.db.query(`SELECT id,provider,CASE WHEN email IS NULL THEN NULL ELSE regexp_replace(email,'(^.).*(@.*$)','\\1***\\2') END email,CASE WHEN phone IS NULL THEN NULL ELSE left(phone,3)||'***'||right(phone,2) END phone,email_verified,phone_verified,created_at,last_used_at FROM auth_identities WHERE user_id=$1 ORDER BY created_at`,[userId])).rows}

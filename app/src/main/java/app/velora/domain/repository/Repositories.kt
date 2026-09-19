@@ -40,13 +40,18 @@ interface PhotoRepository {
     suspend fun list():DataResult<List<ProfilePhoto>>
     suspend fun upload(position:Int,bytes:ByteArray,mimeType:String):DataResult<ProfilePhoto>
     suspend fun delete(id:String):DataResult<Unit>
+    suspend fun reorder(photoIds:List<String>):DataResult<List<ProfilePhoto>>
+    suspend fun makeMain(id:String):DataResult<List<ProfilePhoto>>
 }
 interface DatingRepository {
     suspend fun discover():DataResult<List<DiscoverProfile>>
+    suspend fun discoverPage(cursor:String?=null):DataResult<CursorPage<DiscoverProfile>>
+    suspend fun publicProfile(userId:String):DataResult<PublicProfile>
     suspend fun like(userId:String,superLike:Boolean=false):DataResult<MatchResult>
     suspend fun pass(userId:String):DataResult<Unit>
     suspend fun rewind():DataResult<String?>
     suspend fun matches():DataResult<List<MatchSummary>>
+    suspend fun matchesPage(cursor:String?=null):DataResult<CursorPage<MatchSummary>>
     suspend fun unmatch(matchId:String):DataResult<Unit>
     suspend fun preferences():DataResult<SearchPreferences>
     suspend fun updatePreferences(value:SearchPreferences):DataResult<SearchPreferences>
@@ -58,14 +63,19 @@ interface DatingRepository {
     suspend fun activateDevelopmentPremium():DataResult<Subscription>
     suspend fun boost():DataResult<String>
     suspend fun receivedLikes():DataResult<ReceivedLikes>
+    suspend fun receivedLikesPage(cursor:String?=null):DataResult<ReceivedLikes>
+    suspend fun privacy():DataResult<PrivacySettings>
+    suspend fun updatePrivacy(value:PrivacySettings):DataResult<PrivacySettings>
 }
 interface ChatRepository {
     suspend fun conversations():DataResult<List<Conversation>>
+    suspend fun conversationsPage(cursor:String?=null):DataResult<CursorPage<Conversation>>
     suspend fun messages(conversationId:String):DataResult<List<ChatMessage>>
+    suspend fun messagesPage(conversationId:String,cursor:String?=null):DataResult<CursorPage<ChatMessage>>
     suspend fun send(conversationId:String,body:String,replyToId:String?=null):DataResult<ChatMessage>
     suspend fun sendPhoto(conversationId:String,bytes:ByteArray,mimeType:String,replyToId:String?=null):DataResult<ChatMessage>
     suspend fun markRead(conversationId:String):DataResult<Unit>
     fun sendTyping(conversationId:String,active:Boolean)
     fun realtime(conversationId:String):Flow<ChatEvent>
 }
-sealed interface ChatEvent { data class Message(val value:ChatMessage):ChatEvent; data class Typing(val userId:String,val active:Boolean):ChatEvent; data class Online(val userId:String,val active:Boolean):ChatEvent; data class Read(val userId:String,val messageIds:List<String>):ChatEvent; data object Connected:ChatEvent; data class Error(val message:String):ChatEvent }
+sealed interface ChatEvent { data class Message(val value:ChatMessage):ChatEvent; data class Typing(val userId:String,val active:Boolean):ChatEvent; data class Online(val userId:String,val active:Boolean):ChatEvent; data class Delivered(val userId:String,val messageIds:List<String>):ChatEvent; data class Read(val userId:String,val messageIds:List<String>):ChatEvent; data object Connected:ChatEvent; data class Error(val message:String):ChatEvent }

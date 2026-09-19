@@ -10,7 +10,7 @@
     <string name="report_profile">Пожаловаться</string><string name="block_profile">Заблокировать профиль</string><string name="safety_actions">Действия безопасности</string><string name="swipe_photos">Фото: %1$d · листайте</string><string name="about">О себе</string><string name="interests">Интересы</string><string name="looking_for">ЦЕЛЬ ЗНАКОМСТВА</string><string name="like_person">Лайк для %1$s</string><string name="block_person_title">Заблокировать %1$s?</string><string name="block_person_body">Вы больше не увидите друг друга. %1$s не получит уведомление.</string><string name="block">Заблокировать</string>
     <string name="match_prefix">ЭТО</string><string name="match_word">СОВПАДЕНИЕ</string><string name="match_message">У вас с %1$s взаимная симпатия.</string><string name="someone_special">особенным человеком</string><string name="your_photo">Ваше фото</string><string name="send_message">Написать сообщение</string><string name="keep_discovering">Продолжить знакомства</string><string name="connections_potential">Взаимные симпатии</string><string name="new_sparks">Новые совпадения</string><string name="new_label">Новое</string><string name="your_conversations">Ваши диалоги</string><string name="no_matches">Совпадений пока нет</string><string name="mutual_like_hint">Здесь появится взаимный лайк.</string><string name="no_conversations">Диалогов пока нет</string><string name="conversation_hint">После совпадения начните с детали из профиля.</string>
     <string name="search_conversations">Поиск диалогов</string><string name="conversations_empty">Здесь появятся ваши диалоги</string><string name="chat_match_hint">Поставьте лайк тому, кому понравились вы, чтобы начать общение.</string><string name="chat">Чат</string><string name="typing">печатает…</string><string name="online_lower">в сети</string><string name="recently_active_lower">недавно в сети</string><string name="conversation_actions">Действия с диалогом</string><string name="report">Пожаловаться</string><string name="unmatch">Удалить совпадение</string><string name="start_from_profile">Начните с интересной детали из профиля</string><string name="replying">Ответ</string><string name="photo">Фото</string><string name="cancel_reply">Отменить ответ</string><string name="attach_photo">Прикрепить фото</string><string name="add_emoji">Добавить эмодзи</string><string name="message_hint">Сообщение…</string><string name="send">Отправить</string><string name="block_chat_title">Заблокировать человека?</string><string name="unmatch_title">Удалить совпадение?</string><string name="block_chat_body">Вы больше не сможете видеть друг друга и переписываться.</string><string name="unmatch_body">Диалог будет удалён у обоих участников.</string><string name="shared_photo">Фото в чате</string><string name="reply">Ответить</string><string name="read">Прочитано</string>
-    <string name="settings">Настройки</string><string name="settings_discovery">ПОИСК</string><string name="age_range">Возраст: %1$d–%2$d</string><string name="max_distance">Максимальное расстояние: %1$d км</string><string name="show_me">Показывать</string><string name="save_discovery">Сохранить настройки поиска</string><string name="privacy_safety">ПРИВАТНОСТЬ И БЕЗОПАСНОСТЬ</string><string name="notifications">Уведомления</string><string name="hide_profile">Скрыть мой профиль</string><string name="hide_profile_hint">Существующие совпадения смогут писать вам</string><string name="blocked_profiles">Заблокированные профили</string><string name="blocked_member">Заблокированный пользователь</string><string name="blocked_hint">Не может видеть вас или связаться</string><string name="unblock">Разблокировать</string><string name="account">АККАУНТ</string><string name="sign_out">Выйти</string><string name="delete_account">Удалить аккаунт</string><string name="delete_title">Удалить аккаунт?</string><string name="delete_body">Профиль, фото, совпадения и сообщения будут удалены безвозвратно.</string><string name="delete_permanently">Удалить навсегда</string>
+    <string name="settings">Настройки</string><string name="settings_discovery">ПОИСК</string><string name="age_range">Возраст: %1$d–%2$d</string><string name="max_distance">Максимальное расстояние: %1$d км</string><string name="show_me">Показывать</string><string name="save_discovery">Сохранить настройки поиска</string><string name="privacy_safety">ПРИВАТНОСТЬ И БЕЗОПАСНОСТЬ</string><string name="notifications">Уведомления</string><string name="hide_profile">Скрыть мой профиль</string><string name="hide_profile_hint">Существующие совпадения смогут писать вам</string><string name="blocked_profiles">Заблокированные профили</string><string name="blocked_member">Заблокированный пользователь</string><string name="blocked_hint">Не может видеть вас или связаться</string><string name="unblock">Разблокировать</string><string name="account">АККАУНТ</string><string name="sign_out">Выйти</string><string name="delete_account">Удалить аккаунт</string><string name="delete_title">Удалить аккаунт?</string><string name="delete_body">Профиль исчезнет сразу. Данные аккаунта будут запланированы к удалению через 30 дней; отдельные записи безопасности могут храниться дольше.</string><string name="delete_permanently">Удалить аккаунт</string>
     <string name="language">ЯЗЫК</string><string name="language_system">Как в системе</string><string name="language_russian">Русский</string><string name="language_english">English</string>
     <string name="location_section">МЕСТОПОЛОЖЕНИЕ ПРОФИЛЯ</string><string name="location_not_set">Местоположение не указано</string><string name="location_source_gps">Примерное местоположение устройства</string><string name="location_source_manual">Город выбран вручную</string><string name="update_location">Обновить по устройству</string><string name="choose_city_manually">Выбрать город вручную</string><string name="manual_location_title">Указать город вручную</string><string name="country_optional">Страна (необязательно)</string><string name="city">Город</string><string name="location_permission_title">Использовать поиск по местоположению?</string><string name="location_permission_body">Velora запрашивает геопозицию только при открытом приложении и сохраняет примерную точку. Точные координаты никогда не показываются другим людям.</string><string name="allow_location">Использовать примерную геопозицию</string><string name="not_now">Не сейчас</string><string name="location_denied">Доступ к геопозиции не предоставлен. Выберите город вручную.</string><string name="location_unavailable">Не удалось определить местоположение. Выберите город вручную.</string><string name="location_saved">Местоположение профиля обновлено.</string>
     <string name="connected_accounts">ПОДКЛЮЧЁННЫЕ АККАУНТЫ</string><string name="provider_email">Эл. почта</string><string name="provider_google">Google</string><string name="provider_phone">Телефон</string><string name="provider_x">X</string><string name="provider_vk">VK</string><string name="provider_instagram">Instagram</string><string name="unlink">Отключить</string><string name="unlink_title">Отключить %1$s?</string><string name="unlink_body">Должен остаться хотя бы один рабочий способ входа.</string><string name="instagram_add">Подключить Instagram</string><string name="instagram_edit">Изменить ссылку Instagram</string><string name="instagram_handle">Имя пользователя Instagram</string><string name="instagram_visible">Показывать в публичном профиле</string><string name="instagram_no_password">Velora никогда не просит пароль от Instagram.</string>
@@ -22,4 +22,49 @@
     <string-array name="onboarding_titles"><item>Как вас зовут?</item><item>Когда вы родились?</item><item>Как вы себя определяете?</item><item>Кого вы хотите встретить?</item><item>Откуда начать поиск?</item><item>Добавьте лучшие моменты</item><item>Расскажите о себе</item><item>Выберите интересы</item><item>Что привело вас сюда?</item></string-array>
     <string-array name="onboarding_subtitles"><item>Достаточно имени.</item><item>Вам должно быть не меньше 18 лет.</item><item>Выберите подходящий вариант.</item><item>Это можно изменить в любой момент.</item><item>Используйте примерную геопозицию или укажите город вручную.</item><item>Профили с 3+ фото получают больше внимания.</item><item>Несколько честных слов многое скажут.</item><item>Выберите минимум три.</item><item>Определите намерение, но оставьте место для магии.</item></string-array>
     <string name="person_profile_photo">Фото профиля %1$s</string>
+    <string name="profile_loading">Открываем профиль…</string>
+    <string name="profile_unavailable">Этот профиль недоступен</string>
+    <string name="try_again">Повторить</string>
+    <string name="no_bio">Описание пока не добавлено.</string>
+    <string name="gender">ПОЛ</string>
+    <string name="last_seen">БЫЛ(А) В СЕТИ</string>
+    <string name="status_hidden">СТАТУС СКРЫТ</string>
+    <string name="offline_status">НЕ В СЕТИ</string>
+    <string name="matched_label">Совпадение</string>
+    <string name="liked_label">Лайк отправлен</string>
+    <string name="likes_you_label">Вы понравились</string>
+    <string name="photo_load_failed">Не удалось загрузить фото</string>
+    <string name="close_photo">Закрыть фото</string>
+    <string name="photo_counter">%1$d из %2$d</string>
+    <string name="swipe_down_close">Смахните вниз, чтобы закрыть · масштабируйте пальцами</string>
+    <string name="report_person">Пожаловаться на %1$s</string>
+    <string name="report_spam">Спам</string>
+    <string name="report_fake">Поддельный профиль</string>
+    <string name="report_harassment">Оскорбления или преследование</string>
+    <string name="report_inappropriate">Недопустимый контент</string>
+    <string name="report_underage">Несовершеннолетний пользователь</string>
+    <string name="report_other">Другое</string>
+    <string name="report_comment">Комментарий (необязательно)</string>
+    <string name="submit_report">Отправить жалобу</string>
+    <string name="view_profile">Открыть профиль</string>
+    <string name="load_earlier">Загрузить предыдущие сообщения</string>
+    <string name="show_online_status">Показывать статус онлайн</string>
+    <string name="show_distance">Показывать примерное расстояние</string>
+    <string name="show_city">Показывать город</string>
+    <string name="discoverable_profile">Показывать анкету в поиске</string>
+    <string name="read_receipts">Показывать статус прочтения</string>
+    <string name="main_photo">Главное фото</string>
+    <string name="photo_actions">Действия с фото</string>
+    <string name="set_main_photo">Сделать главным</string>
+    <string name="move_left">Переместить раньше</string>
+    <string name="move_right">Переместить позже</string>
+    <string name="error_profile_unavailable">Эта анкета больше недоступна</string>
+    <string name="error_photo_invalid">Это изображение нельзя использовать. Выберите корректное фото JPEG, PNG или WebP.</string>
+    <string name="error_photo_order">Порядок фотографий изменился. Обновите экран и повторите.</string>
+    <string name="error_conversation_closed">Этот диалог больше недоступен</string>
+    <string name="error_action_limit">Лимит действий на сегодня исчерпан</string>
+    <string name="error_super_like_limit">Super Like на сегодня уже использован</string>
+    <string name="offline_banner">Нет сети · показаны сохранённые данные</string>
+    <string name="start_chat_hint">Начните общение</string>
+    <string name="delivered">Доставлено</string>
 </resources>

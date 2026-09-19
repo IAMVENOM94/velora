@@ -29,5 +29,5 @@ export class AuthService {
 @Injectable()
 export class ActiveUserGuard implements CanActivate {
   constructor(private auth:AuthService,private db:Db){}
-  async canActivate(context:ExecutionContext){const request=context.switchToHttp().getRequest();const user=this.auth.user(request.headers.authorization);const active=await this.db.query('SELECT 1 FROM users WHERE id=$1 AND active=true',[user.sub]);if(!active.rowCount)throw new HttpException('Unauthorized',401);request.user=user;return true}
+  async canActivate(context:ExecutionContext){const request=context.switchToHttp().getRequest();const user=this.auth.user(request.headers.authorization);const active=await this.db.query('SELECT 1 FROM users WHERE id=$1 AND active=true AND deleted_at IS NULL AND suspended_at IS NULL',[user.sub]);if(!active.rowCount)throw new HttpException({code:'SESSION_INVALID',message:'Unauthorized'},401);request.user=user;return true}
 }

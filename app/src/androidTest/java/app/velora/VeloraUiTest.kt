@@ -9,11 +9,14 @@ import app.velora.domain.model.*
 import app.velora.ui.theme.VeloraTheme
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 
 class VeloraUiTest {
     @get:Rule val compose=createComposeRule()
+
+    @Before fun forceEnglishLocale(){app.velora.localization.LocaleController.apply(app.velora.localization.AppLanguage.English)}
 
     @Test fun emptyDiscover_exposesRecoveryActions(){
         compose.setContent{VeloraTheme{DiscoverEmpty(loaded=true,premium=true,onRefresh={},onSettings={},onRewind={})}}
@@ -34,6 +37,44 @@ class VeloraUiTest {
     @Test fun matchScreen_usesRealProfileName(){
         compose.setContent{VeloraTheme{MatchConnected(MyProfile("me","me@example.com","Nova",true),DiscoverProfile("other","River",31,"Lisbon","Bio","relationship",5,null,true),onChat={},onContinue={})}}
         compose.onNodeWithText("You and River felt the same spark.").assertExists()
+    }
+
+    @Test fun publicProfile_showsFullContentGalleryAndRelationshipActions(){
+        var liked=false
+        val localPhoto="android.resource://app.velora/${R.drawable.maya}"
+        val profile=PublicProfile(
+            userId="bianca",displayName="Bianca",age=31,gender="woman",
+            bio="A complete biography that remains readable in full and is never reduced to one line.",
+            relationshipGoal="relationship",city="Kazan",distanceKm=7,verified=true,
+            onlineStatus="ONLINE",lastSeen=null,relationshipState="LIKED_ME",matchId=null,
+            conversationId=null,canMessage=false,
+            photos=listOf(
+                PublicProfilePhoto("one",0,localPhoto,localPhoto,localPhoto,1080,1440),
+                PublicProfilePhoto("two",1,localPhoto,localPhoto,localPhoto,1080,1440),
+            ),
+            interests=listOf("Coffee","Photography","Travel"),
+        )
+        compose.setContent{VeloraTheme{UserProfileScreen(profile,false,{},{},{liked=true},{},{},{},{},{},{_,_->})}}
+        compose.onNodeWithText("Bianca, 31").assertExists()
+        compose.onAllNodesWithContentDescription("Bianca profile photo")[0].performClick()
+        compose.onNodeWithText("1 of 2").assertExists()
+        compose.onNodeWithContentDescription("Close photo").performClick()
+        compose.onNodeWithText(profile.bio).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Coffee").assertExists()
+        compose.onNodeWithContentDescription("Like").performClick()
+        compose.runOnIdle{assertTrue(liked)}
+    }
+
+    @Test fun matchedPublicProfile_exposesMessageAndConfirmedUnmatch(){
+        var messaged=false;var unmatched=false
+        val profile=PublicProfile("river","River",30,"man","Full profile bio","dating","Lisbon",4,false,"RECENTLY_ONLINE",null,"MATCHED","match","conversation",true,emptyList(),listOf("Design"))
+        compose.setContent{VeloraTheme{UserProfileScreen(profile,false,{},{},{},{},{},{messaged=true},{unmatched=true},{},{_,_->})}}
+        compose.onNodeWithText("Send a message").performClick()
+        compose.runOnIdle{assertTrue(messaged)}
+        compose.onNodeWithText("Unmatch").performClick()
+        compose.onNodeWithText("End this match?").assertExists()
+        compose.onAllNodesWithText("Unmatch").onLast().performClick()
+        compose.runOnIdle{assertTrue(unmatched)}
     }
 
     @Test fun registrationOnboardingDiscoverMatchAndChat_areWiredEndToEnd(){
@@ -90,7 +131,7 @@ class VeloraUiTest {
 
     @Test fun connectedAccounts_andProviderActions_areVisible(){
         var unlinked=""
-        compose.setContent{VeloraTheme{SettingsConnected(SearchPreferences(),false,emptyList(),{},{},{},{},{},{},providers=AuthProviders(phone=true),identities=listOf(AuthIdentity("email-id","email","p***@example.com"),AuthIdentity("google-id","google","g***@example.com")),onUnlink={unlinked=it})}}
+        compose.setContent{VeloraTheme{SettingsConnected(SearchPreferences(),false,emptyList(),{},{},{},{},{},providers=AuthProviders(phone=true),identities=listOf(AuthIdentity("email-id","email","p***@example.com"),AuthIdentity("google-id","google","g***@example.com")),onUnlink={unlinked=it})}}
         compose.onNodeWithText("CONNECTED ACCOUNTS").assertExists()
         compose.onNodeWithText("g***@example.com").assertExists()
         compose.onNodeWithText("Phone").assertExists()
@@ -102,7 +143,7 @@ class VeloraUiTest {
 
     @Test fun settingsLanguageChoice_isWired(){
         var selected:app.velora.localization.AppLanguage?=null
-        compose.setContent{VeloraTheme{SettingsConnected(SearchPreferences(),false,emptyList(),{},{},{},{},{},{},onLanguage={selected=it})}}
+        compose.setContent{VeloraTheme{SettingsConnected(SearchPreferences(),false,emptyList(),{},{},{},{},{},onLanguage={selected=it})}}
         compose.onNodeWithText("Русский").performClick()
         compose.runOnIdle{assertEquals(app.velora.localization.AppLanguage.Russian,selected)}
     }

@@ -1,6 +1,6 @@
 # API
 
-Base development URL: `http://localhost:8080`. All endpoints except auth, health, Swagger, and public profile media require `Authorization: Bearer <access-token>`.
+Base development URL: `http://localhost:8080`. All endpoints except auth, health, and Swagger require `Authorization: Bearer <access-token>`. Profile and chat media are authenticated and re-check visibility, block, account, match, and membership state.
 
 Interactive OpenAPI documentation is generated at `/docs`. JSON field names shown below match the wire format; the Android serialization layer maps them into Kotlin models.
 
@@ -52,14 +52,19 @@ Provider tokens establish identity only and are never used as the Velora session
 | GET/PUT | `/users/me/interests` | Read or replace profile interests. |
 | PATCH | `/users/me/visibility` | Hide or publish the profile. |
 | GET | `/users/me/photos` | Ordered photo collection. |
-| POST | `/users/me/photos/:position/upload` | Direct multipart image upload, positions 0-8. |
+| POST | `/users/me/photos/:position/upload` | Direct multipart image upload, position below configured `PROFILE_PHOTO_LIMIT`. Uploading into an occupied position replaces it. |
 | POST | `/users/me/photos/upload-url` | Create a 15-minute S3-compatible presigned PUT URL. |
 | POST | `/users/me/photos` | Attach a validated presigned object to a position. |
-| DELETE | `/users/me/photos/:id` | Delete the caller's photo and object. |
-| DELETE | `/users/me` | Delete the account and owned media. |
-| GET | `/media/:id` | Stream an opaque public profile image. |
+| PUT | `/users/me/photos/order` | Reorder the complete owned collection with `{ "photoIds": [...] }`. |
+| PUT | `/users/me/photos/:id/main` | Move one owned photo to position 0. |
+| DELETE | `/users/me/photos/:id` | Delete all variants and close the position gap. |
+| GET | `/users/:userId/profile` | Safe public profile DTO with photos, interests, presence, and aggregate relationship state. |
+| DELETE | `/users/me` | Soft-delete now, revoke sessions/devices/sockets, hide the account, and return `purgeAfter`. |
+| GET | `/media/:id/:variant` | Authenticated `thumbnail`, `medium`, or `full` JPEG stream after access checks. |
 
-Images are limited to 10 MB and JPEG, PNG, or WebP. MIME type, extension, size, and file signature are validated. Objects are never stored in PostgreSQL.
+Images are limited by `PROFILE_IMAGE_MAX_BYTES` (10 MB default), decoded as JPEG/PNG/WebP, and rejected when corrupt, oversized in dimensions/pixels, or inconsistent with their claimed type. Sharp emits bounded thumbnail/medium/full JPEG derivatives without EXIF, IPTC, XMP, or GPS metadata. Objects are never stored in PostgreSQL.
+
+`PublicProfileDto` contains `userId`, `displayName`, `age`, `gender`, full `bio`, `relationshipGoal`, privacy-filtered `city`/`distanceKm`, `verified`, `onlineStatus`/`lastSeen`, `relationshipState`, match/conversation IDs only when applicable, `canMessage`, photos, interests, and visible social profiles. It never contains email, phone, provider/OAuth identities, coordinates, refresh tokens, internal moderation data, IPs, or device identifiers. Blocked, deleted, suspended, or invisible profiles return the same non-enumerating `PROFILE_UNAVAILABLE` response.
 
 ## Discovery, matching, and Premium
 
@@ -78,26 +83,39 @@ Images are limited to 10 MB and JPEG, PNG, or WebP. MIME type, extension, size, 
 
 FREE allows 20 daily discovery actions and 1 Super Like; development PREMIUM allows 1000 and 5. Limits are transactionally serialized per user.
 
+Production Android uses cursor feeds instead of the compatibility list endpoints:
+
+| Method | Path | Cursor order |
+| --- | --- | --- |
+| GET | `/feed/discover?limit=20&cursor=...` | Stable user ID, maximum 40. |
+| GET | `/feed/matches?limit=20&cursor=...` | Match creation time + ID. |
+| GET | `/feed/conversations?limit=30&cursor=...` | Last activity time + conversation ID. |
+| GET | `/feed/conversations/:id/messages?limit=50&cursor=...` | Message creation time + ID; returned oldest-to-newest per page. |
+| GET | `/feed/likes?limit=20&cursor=...` | Like time + sender ID; people remain entitlement-gated by the existing development Premium architecture. |
+
+Each response is `{ "items": [...], "nextCursor": "..." | null }` (likes also includes `count` and `locked`). Cursors are opaque base64url values; malformed cursors return `INVALID_CURSOR`.
+
 ## Chat
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/conversations` | Active conversations, last message, unread count, and peer summary. |
 | GET | `/conversations/:id/messages?before=<ISO time>` | Up to 50 persisted messages. |
-| POST | `/conversations/:id/messages` | Send text and optional `replyToId`. |
-| POST | `/conversations/:id/messages/photo` | Send multipart image and optional `replyToId`. |
+| POST | `/conversations/:id/messages` | Send text with optional `replyToId` and UUID `clientMessageId`. |
+| POST | `/conversations/:id/messages/photo` | Send multipart image with optional `replyToId` and UUID `clientMessageId`. |
 | PATCH | `/conversations/:id/read` | Persist read state and broadcast it. |
 | GET | `/media/messages/:id` | Authenticated image stream for conversation members. |
 
-WebSocket: `/ws/chat?token=<access-token>&conversationId=<uuid>`.
+WebSocket: `/ws/chat?conversationId=<uuid>` with `Authorization: Bearer <access-token>` during the HTTP upgrade. Tokens are deliberately excluded from URLs and logs.
 
-Client events: `typing { active }`, `read`. Server events: `connected`, `message`, `typing`, `read`, `online`, `error`. The connection is rejected when the caller is not a member of an active match.
+Client events: `typing { active }`, `read`. Server events: `connected`, `message`, `typing`, `delivered`, `read`, `online`, `error`. The server rechecks active membership/block state for every incoming event, rejects payloads over 16 KiB, pings connections, and closes affected sockets immediately after block, unmatch, or account deletion. REST and WebSocket retries converge on the unique `(sender_id, client_message_id)` record instead of duplicating messages.
 
 ## Preferences, safety, and notifications
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET/PATCH | `/preferences` | Age 18-100, distance 1-500 km, shown genders, notifications. |
+| GET/PATCH | `/privacy` | Online, distance, city, discovery, read-receipt, push, and temporary-hide switches enforced server-side. |
 | POST/GET | `/blocks` | Block a user or list blocked accounts. Blocking also unmatches. |
 | DELETE | `/blocks/:userId` | Unblock. |
 | POST | `/reports` | Report `harassment`, `spam`, `fake`, `inappropriate`, `underage`, or `other`. |
@@ -105,4 +123,10 @@ Client events: `typing { active }`, `read`. Server events: `connected`, `message
 | PATCH | `/notifications/:id/read` | Mark one notification read. |
 | POST/DELETE | `/notifications/devices` | Register or remove a push-device token. |
 
-Standard errors are JSON with an HTTP status and `message`. `402` means Premium is required, `409` is a state conflict, `429` is a daily quota, and `401` triggers one client token-refresh attempt.
+Reports retain reason/comment server-side for the moderation window but never return internal moderation fields to the reporter. Unmatch marks the match inactive and preserves message history for retention/audit; it immediately removes active feeds and prevents further reads/writes through product APIs. Block additionally removes mutual likes and prevents public-profile/media access.
+
+## Error, correlation, and rate-limit contract
+
+Every error is `{ "code": "STABLE_CODE", "message": "safe text", "fieldErrors": { ... }?, "requestId": "..." }`. The same request ID is returned in `X-Request-Id` and structured logs. Raw SQL, exception messages, stack traces, credentials, authorization headers, bodies, full phone numbers, and coordinates are not logged or returned. Android maps known codes to localized user-facing messages and retries a 401 once after serialized refresh rotation.
+
+Scoped backend limits cover login, registration, OTP, profile views, likes, passes, messages, reports, and photo upload. Responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `Retry-After` for 429. `RATE_LIMIT_MULTIPLIER` must remain 1 in production.

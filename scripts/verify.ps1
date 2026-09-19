@@ -1,4 +1,7 @@
-param([switch]$SkipContainers)
+param(
+    [switch]$SkipContainers,
+    [string]$ReleaseApiUrl = 'https://api.velora.invalid/'
+)
 
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -11,6 +14,7 @@ function Invoke-Checked([scriptblock]$Command) {
 Push-Location $root
 try {
     if (-not (Test-Path -LiteralPath '.env')) { throw 'Missing .env. Run scripts/setup-dev.ps1 first.' }
+    if (-not $ReleaseApiUrl.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase)) { throw 'ReleaseApiUrl must use HTTPS.' }
     if (-not (Test-Path -LiteralPath 'backend/node_modules')) {
         Push-Location backend
         try { Invoke-Checked { npm ci } }
@@ -40,7 +44,7 @@ try {
     }
 
     Invoke-Checked { .\gradlew.bat assembleDebug testDebugUnitTest assembleDebugAndroidTest --no-daemon }
-    Invoke-Checked { .\gradlew.bat assembleRelease --no-daemon }
+    Invoke-Checked { .\gradlew.bat assembleRelease "-PVELORA_API_BASE_URL=$ReleaseApiUrl" --no-daemon }
     Invoke-Checked { .\scripts\scan-release-apk.ps1 }
     Invoke-Checked { .\gradlew.bat lintDebug --no-daemon --max-workers=1 }
     Write-Host 'Verification passed: backend, integration, Android build, unit tests, test APK, release secret scan, and lint.' -ForegroundColor Green
