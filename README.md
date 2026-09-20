@@ -41,11 +41,11 @@ Developed with **ChatGPT / Codex**, as confirmed by the project author. AI serve
 
 ## Current Status
 
-рџџЎ **Active development** вЂ” audited 2026-09-19.
+🟡 **Active development** — audited 2026-09-19.
 
 | Classification | Evidence and limits |
 |---|---|
-| WORKING вЂ” verified locally | Backend compilation and 18 unit tests; Android debug build; 11 freshly rerun JVM tests pass; lint completes with 28 warnings and no errors. |
+| WORKING — verified locally | Backend compilation and 18 unit tests; Android debug build; 11 freshly rerun JVM tests pass; lint completes with 28 warnings and no errors. |
 | PARTIAL | Integrated authentication, discovery, media, safety and chat flows are implemented. This audit did not run the API/database/storage integration suite or device UI tests. |
 | EXPERIMENTAL | Development Premium activation, development push registration and provider development assertions. These are not real payments or production notification delivery. |
 | NOT IMPLEMENTED / not connected | Production SMS sender explicitly returns 503. Production billing, Android FCM registration, production recovery email delivery, moderation console and deployed operations are not established. OAuth needs external configuration and live verification. |
@@ -99,4 +99,4 @@ Build: **PASS** (backend and Android debug). Unit tests: **PASS** (18 backend an
 - Realtime fan-out and presence need additional work before horizontal scaling; production purge scheduling is not established.
 - No license has been added because ownership and reuse rights for every asset/dependency were not established.
 - Backend dependency audit: **12 vulnerable package entries (5 high, 7 moderate)** remain open; see [details](docs/DEPENDENCY_AUDIT.md).
-- **Publication is blocked:** a historical Android login screen contains fixed login/password literals. Their origin must be confirmed and any real credentials rotated before publishing history. Current `.env` remains local and ignored. See [security review](docs/SECURITY_AUDIT.md).
+- **Publication secret scan: PASS (2026-09-20).** The author confirmed the historical login defaults were fictional; both values were removed from the publication history. Current source is unchanged, and local `.env` remains ignored. This does not resolve the dependency findings above. See [security review](docs/SECURITY_AUDIT.md).

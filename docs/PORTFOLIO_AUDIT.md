@@ -1,4 +1,4 @@
-# Verification and scope вЂ” Velora
+# Verification and scope — Velora
 
 Date: 2026-09-19. Status: active development.
 
@@ -29,3 +29,7 @@ Honest portfolio README/status annotations, expanded ignore rules and demo folde
 ## Demo to record
 
 Use synthetic accounts. Show registration, profile editing/photo upload, discovery, reciprocal match and a two-client chat; then offline/reconnect, block/unmatch and Russian/English switch. Label provider/payment/push screens that remain development-only. Record failures as well as successful paths; never display `.env`, tokens or real user profiles.
+
+## Publication recheck — 2026-09-20
+
+Backend build and 18 unit tests PASS. Android debug build and 11 JVM tests PASS with `--rerun-tasks` (55 tasks executed). Current tracked source was byte-identical to the cleaned publication snapshot. Lint results above are from 2026-09-19. Historical fictional login defaults were removed with owner approval; see SECURITY_AUDIT.md. Dependency findings remain open.
