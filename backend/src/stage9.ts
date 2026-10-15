@@ -11,7 +11,7 @@ type IdentityMode='login'|'link';
 export abstract class SmsSender { abstract send(phone:string,code:string):Promise<void> }
 @Injectable() export class DevSmsSender extends SmsSender { async send(_phone:string,_code:string){return} }
 @Injectable() export class ProductionSmsSender extends SmsSender { async send(_phone:string,_code:string){throw new HttpException('Production SMS adapter is not configured',503)} }
-@Injectable() export class SmsGateway { constructor(private dev:DevSmsSender,private production:ProductionSmsSender){} async send(phone:string,code:string){return process.env.NODE_ENV==='production'?this.production.send(phone,code):this.dev.send(phone,code)} }
+@Injectable() export class SmsGateway { constructor(private dev:DevSmsSender,private production:ProductionSmsSender){} async send(phone:string,code:string){return process.env.NODE_ENV==='development'||process.env.NODE_ENV==='test'?this.dev.send(phone,code):this.production.send(phone,code)} }
 
 @Injectable()
 export class ProviderVerificationService {
