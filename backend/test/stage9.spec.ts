@@ -10,3 +10,22 @@ describe('Stage 9 security primitives',()=>{
   it('creates deterministic S256 PKCE challenges',()=>{expect(pkceChallenge('test-verifier')).toMatch(/^[A-Za-z0-9_-]{43}$/)});
   it('accepts signed development provider assertions and rejects tampering',()=>{const token=createDevelopmentAssertion({provider:'google',subject:'subject-1',email:'person@example.com'},'dev-secret');expect(verifyDevelopmentAssertion(token,'google','dev-secret')?.subject).toBe('subject-1');expect(verifyDevelopmentAssertion(token+'x','google','dev-secret')).toBeNull();expect(verifyDevelopmentAssertion(token,'x','dev-secret')).toBeNull()});
 });
+
+// Regression: the production SMS sender is intentionally unconfigured.
+import {ProviderVerificationService} from '../src/stage9';
+
+describe('production provider availability',()=>{
+  it('never advertises SMS when the production sender is unavailable',()=>{
+    const previousNodeEnv=process.env.NODE_ENV;
+    const previousFlag=process.env.SMS_PROVIDER_CONFIGURED;
+    try{
+      process.env.NODE_ENV='production';
+      process.env.SMS_PROVIDER_CONFIGURED='true';
+      const service=new ProviderVerificationService({} as any);
+      expect(service.availability().phone).toBe(false);
+    }finally{
+      if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;
+      if(previousFlag===undefined)delete process.env.SMS_PROVIDER_CONFIGURED;else process.env.SMS_PROVIDER_CONFIGURED=previousFlag;
+    }
+  });
+});
