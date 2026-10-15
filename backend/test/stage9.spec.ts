@@ -21,7 +21,7 @@ describe('production provider availability',()=>{
     try{
       process.env.NODE_ENV='production';
       process.env.SMS_PROVIDER_CONFIGURED='true';
-      const service=new ProviderVerificationService({} as any);
+      const service=new ProviderVerificationService();
       expect(service.availability().phone).toBe(false);
     }finally{
       if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;
